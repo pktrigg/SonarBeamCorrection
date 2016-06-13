@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 #name:          SonarCoverage.py
 #created:       May 2016
 #by:            p.kennedy@fugro.com
@@ -20,4 +21,17 @@
 # creates a coverage polygon representing the slant range setting of the sonar
 # creates a nadir gap polygon representing the null area under the sidescan which is poor quality data.
 # uses the sensor position, altitude and heading rather than computing CMG heading which is a bit wobbly when navigation data has duplicate points
+=======
+#name:          SonarBeamCorrection.py
+#created:       May 2016
+#by:            p.kennedy@fugro.com
+#description:   This script will compute a beam correction file from a series of XTF files and save the results to a CSV file
+#notes:         See main at end of script for example how to use this
+#version 1.00
+
+#DONE
+
+# based on XTF version 26 18/12/2008
+# based on existing SonarCoverage.py script
+>>>>>>> e776c71efce533ae5aa1da6b69f9bfa187a7a390
 # initial implementation

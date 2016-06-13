@@ -13,8 +13,7 @@
                 "WaitOnNormalExit",
                 "RedirectOutput"
             ],
-            "args": ["-n","-i",  "U:/GP1500/GP1500-3_(Proc)/GIS/200_Data_Holidays_GIS/NadirGap_Review_Sonarwiz_vs_ROAMES/Test_polygon_script_PK/35SE_XTFs_Roames_2D/*.xtf", "-odix", "shapefiles"]
+            "args": ["-w","-i",  "C:/projects/GP1533/VSM03/XTF/ssh-0065-vsm3_16-20151122-182327_P_Rev1.xtf"]
         }
    ]
 }
-            //#"args": ["-n","-i",  "C:/development/python/SonarCoverage/*.xtf", "-odix", "shapefiles"],
