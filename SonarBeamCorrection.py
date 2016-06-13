@@ -5,6 +5,9 @@
 #notes:         See main at end of script for example how to use this
 #version 1.00
 
+#2DO
+# do we need to take into account changes in sample frequency.  THis will screw up the BC table 
+# add support for altitude based BC tables.  This means compute the altitude range, then segment on a regular intervel (default 1m)
 #DONE
 
 # based on XTF version 26 18/12/2008
@@ -20,17 +23,13 @@ import geodetic
 import os
 from glob import glob
 import time
+import numpy as np
+from PIL import Image
 
-def calcGap(altitude):
+# we calculate teh angle in degrees from the altitude and sample number
+def calcAngleFromSample(altitude):
     return (altitude * 0.70) / 2.0
-    
-def isValidGap(altitude, gap):
-    MINIMUMGAP = 50
-    if gap < MINIMUMGAP:
-        return False
-    return True
 
-# from: http://mathforum.org/library/drmath/view/62034.html
 def calculateRangeBearingFromPosition(easting1, northing1, easting2, northing2):
     """given 2 east, north, pairs, compute the range and bearing"""
 
@@ -40,39 +39,15 @@ def calculateRangeBearingFromPosition(easting1, northing1, easting2, northing2):
     bearing = 90 - (180/math.pi)*math.atan2(northing2-northing1, easting2-easting1)
     return (math.sqrt((dx*dx)+(dy*dy)), bearing)
 
-
-# taken frm http://gis.stackexchange.com/questions/76077/how-to-create-points-based-on-the-distance-and-bearing-from-a-survey-point
-def calculatePositionFromRangeBearing(easting, northing, distance, bearing):
-    """given an east, north, range and bearing, compute a new coordinate on the grid"""
-    point =   (easting, northing)
-    angle =   90 - bearing
-    bearing = math.radians(bearing)
-    angle =   math.radians(angle)
-
-    # polar coordinates
-    dist_x = distance * math.cos(angle)
-    dist_y = distance * math.sin(angle)
-
-    xfinal = point[0] + dist_x
-    yfinal = point[1] + dist_y
-
-    # direction cosines
-    cosa = math.cos(angle)
-    cosb = math.cos(bearing)
-    xfinal = point[0] + (distance * cosa)
-    yfinal = point[1] + (distance * cosb)
-    
-    return [xfinal, yfinal]
-
 def main():
 
     start_time = time.time() # time the process
     parser = argparse.ArgumentParser(description='Read XTF file and create either a coverage or Nadir gap polygon.')
-    parser.add_argument('-c', action='store_true', default=False, dest='createCoveragePolygon', help='-c compute a polygon across the entire sonar region, ie COVERAGE')
-    parser.add_argument('-n', action='store_true', default=False, dest='createNadirPolygon', help='-n compute a polygon across the NADIR region')
-    parser.add_argument('-i', dest='inputFile', action='store', help='-i <filename> input filename in ASCI Easting,Northing,Altidude comma separated format')
-    parser.add_argument('-o', dest='outputFile', action='store', help='-o <filename> output shape filename. Do not provide file extension. It will be added for you  [default = Nadir_pg]')
-    parser.add_argument('-odix', dest='outputFolder', action='store', help='-odix <folder> output folder to store shape files.  If not specified, the files will be alongside the input XTF file')
+    parser.add_argument('-c', action='store_true', default=False, dest='createBC', help='-c compute a new Beam Correction file based on contents of XTF file[s]')
+    parser.add_argument('-i', dest='inputFile', action='store', help='-i <XTFfilename> input XTF filename to analyse')
+    parser.add_argument('-w', dest='createWaterfall', default = False, action='store_true', help='-w create a waterfall image from the XTF file')
+    parser.add_argument('-o', dest='outputFile', action='store', help='-o <filename> output Beam Correction filename.  [default = BC.csv]')
+    parser.add_argument('-odix', dest='outputFolder', action='store', help='-odix <folder> output folder to store Beam Correction file.  If not specified, the files will be alongside the input XTF file')
     
     if len(sys.argv)==1:
         parser.print_help()
@@ -84,173 +59,168 @@ def main():
         firstFile = glob(args.inputFile)[0]
         args.outputFolder = os.path.abspath(os.path.join(firstFile, os.pardir))
 
-    shp_pt = shapefile.Writer(shapefile.POINT)
-    # for every record there must be a corresponding geometry.
-    shp_pt.autoBalance = 1
-    shp_pt.field('XTFFile', 'C', 255)
-    shp_pt.field('ALTITUDE', 'C',255)
+
+    leftSide = [] #storage for the left transducer beam correction
+    rightSide = [] #storage for the right transducer beam correction
+    maxSamplesPort = 0
+    maxSamplesStbd = 0
+    minAltitude = 99999
+    maxAltitude = 0
+    segmentInterval = 5 #the altitude segmentaiton interval
     
-    shp_pg = shapefile.Writer(shapefile.POLYGON)
-    shp_pg.autBalance = 1 #ensures gemoetry and attributes match
-    shp_pg.field('XTFFile', 'C', 255)
+    print ("files to Process:", glob(args.inputFile))
+    print ("iterating through all input files to compute the maximm size of the beam correction table.  This takes into account changes in range")
+    if args.createBC:       
+        for filename in glob(args.inputFile):
+            samplesPort, samplesStbd, minAltitude, maxAltitude, pingCount = getSampleRange(filename)
+            maxSamplesPort = max(maxSamplesPort, samplesPort)
+            maxSamplesStbd = max(maxSamplesStbd, samplesStbd)
+        print ("maxSamplesPort %s maxSamplesStbd %s minAltitude %s maxAltitude %s" % (maxSamplesPort, maxSamplesStbd, minAltitude, maxAltitude))
+        
+        numSegments = int(maxAltitude / segmentInterval) + 1 # need to add extra for zero index
+        samplesPortSum = np.zeros((numSegments, maxSamplesPort), dtype=np.int32  )
+        samplesPortCount = np.zeros((numSegments,maxSamplesPort), dtype=np.int  )
+        samplesStbdSum = np.zeros((numSegments, maxSamplesStbd), dtype=np.int32  )
+        samplesStbdCount = np.zeros((numSegments, maxSamplesStbd), dtype=np.int  )
 
     for filename in glob(args.inputFile):
-        if args.createNadirPolygon:       
-            computeNadir(filename, shp_pt, shp_pg)
+        if args.createBC:       
+            samplesPortSum, samplesPortCount, samplesStbdSum, samplesStbdCount = computeBC(filename, samplesPortSum, samplesPortCount, samplesStbdSum, samplesStbdCount, segmentInterval)
+        if args.createWaterfall:       
+            createWaterfall(filename)
         else:
             print ("option not yet implemented!.  Try '-n' to compute nadir gaps")
             exit (0)
 
-    if args.outputFile is None:
-        baseName = os.path.basename(os.path.splitext(glob(args.inputFile)[0])[0])
-        pointFile = os.path.join(args.outputFolder, baseName + "_pt")
-        # pointFile = args.outputFolder + baseName + "_pt"
-        polyFile = os.path.join(args.outputFolder, baseName + "_pg")
-        # polyFile = baseName + "_pg"
-    else:
-        pointFile = args.outputFile + "_pt"
-        polyFile = args.outputFile + "_pg"
+    if args.createBC:       
+        # now save the results to a csv file
+        if args.outputFile is None:
+            baseName = os.path.basename(os.path.splitext(glob(args.inputFile)[0])[0])
+            if args.outputFolder is None:
+                args.outputFolder = os.path.curdir(glob(args.inputFile)[0])
+        else:
+            baseName = os.path.basename(os.path.splitext(glob(args.outputFile)[0]))
+            if args.outputFolder is None:
+                args.outputFolder = os.path.curdir(glob(args.outputFile)[0])
 
-    print("saving shapefile...")
-    #Save shapefiles
-    if len(shp_pt.shapes()) > 0:
-        shp_pt.save(pointFile)
-    else:
-        print ("Nothing to save in points shape file")
-    if len(shp_pg.shapes()) > 0:
-        shp_pg.save(polyFile)
-        print("save complete.")
-    else:
-        print ("Nothing to save in polygon shape file")
 
-    # now write out the prj file of spatial reference, so we can open in ArcMap
-    prj = open(polyFile + ".prj", "w")
-    prj.write('GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]')
-    # epsg = getWKT_PRJ("4326")
-    # prj.write(epsg)
-    prj.close() 
-    prj = open(pointFile + ".prj", "w")
-    prj.write('GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]')
-    # epsg = getWKT_PRJ("4326")
-    # prj.write(epsg)
-    prj.close() 
-    
+        BCPortFile = os.path.join(args.outputFolder, baseName + "_port.csv")
+        BCStbdFile = os.path.join(args.outputFolder, baseName + "_stbd.csv")
+
+        print("saving Port CSV file:", BCPortFile)
+        samplesPortAVG = np.divide(samplesPortSum, samplesPortCount)
+        np.savetxt(BCPortFile, samplesPortAVG, delimiter=',')
+
+        print("saving Stbd CSV file:", BCStbdFile)
+        samplesStbdAVG = np.divide(samplesStbdSum, samplesStbdCount)
+        np.savetxt(BCStbdFile, samplesStbdAVG, delimiter=',')
+
     print("--- %s seconds ---" % (time.time() - start_time)) # print the processing time.
 
     return (0)
 
-def savePolygon(leftSide, rightSide, shp_pg, shp_pt, fileName):
+def mergeImages(image1, image2):
+    """Merge two images into one, displayed side by side
+    :param file1: path to first image file
+    :param file2: path to second image file
+    :return: the merged Image object
+    """
+
+    (width1, height1) = image1.size
+    (width2, height2) = image2.size
+
+    result_width = width1 + width2
+    result_height = max(height1, height2)
+
+    result = Image.new('RGB', (result_width, result_height))
+    result.paste(im=image1, box=(0, 0))
+    result.paste(im=image2, box=(width1, 0))
+    return result
+
+def getSampleRange(filename):
+    maxSamplesPort = 0
+    maxSamplesStbd = 0
+    minAltitude = 99999
+    maxAltitude = 0
+    pingCount = 0
+    #   open the XTF file for reading 
+    r = pyXTF.XTFReader(filename)
+    print ("computing range for file:", filename)
+    while r.moreData():
+        pingHdr = r.readPing()
+        maxSamplesPort = max(pingHdr.pingChannel[0].NumSamples, maxSamplesPort)
+        maxSamplesStbd = max(pingHdr.pingChannel[1].NumSamples, maxSamplesStbd)
+        minAltitude = min(minAltitude, pingHdr.SensorPrimaryAltitude)
+        maxAltitude = max(maxAltitude, pingHdr.SensorPrimaryAltitude)
+        pingCount = pingCount + 1
+    return maxSamplesPort, maxSamplesStbd, minAltitude, maxAltitude, pingCount
+
+# compute the segment from the altitude in a standard manner.  
+def altitudeToSegment(altitude, segmentInterval):    
+    segmentnumber = int( altitude / segmentInterval)
+    # segmentnumber = round(altitude - segmentInterval/2,-1) / segmentInterval
+    return segmentnumber
+
+# create a simple waterfall image from the sonar data using standard nunmpy and PIL python pachakages
+def createWaterfall(filename):
+
+    decimation = 4
+    #compute the size of the array we will need to create
+    maxSamplesPort, maxSamplesStbd, minAltitude, maxAltitude, pingCount= getSampleRange(filename)
+
+    #   open the XTF file for reading 
+    print ("Opening file:", filename)
+    r = pyXTF.XTFReader(filename)
+    portChannel = np.zeros((pingCount, maxSamplesPort), dtype=np.int16  )
+    stbdChannel = np.zeros((pingCount, maxSamplesStbd), dtype=np.int16  )
+    ping = 0
+    print ("Creating waterfall image...")
+    while r.moreData():
+        pingHdr = r.readPing()
+        portChannel[ping] = pingHdr.pingChannel[0].data            
+        # portChannel[ping] = np.add(portChannel[ping], pingHdr.pingChannel[0].data[::decimation])            
+        stbdChannel[ping] = np.add(stbdChannel[ping], pingHdr.pingChannel[1].data)            
+        ping = ping + 1
+        # if ping == 1000:
+        #     break
+        if portChannel.min() < 0:
+             print("negative", portChannel.min())
+
+    np.clip(portChannel, 0, 16)
+    p = portChannel.astype('uint8')
+
+    # portChannel //= 1000 
+    portImage = Image.fromarray(p)
+    # portImage = Image.fromarray(portChannel)
     
-    #now build the outline polygon and store to shapefile
-    outline = []
-    print("merging polygon vertices...")
-    for pt in leftSide:
-        outline.append(pt)
-    rightSide.reverse()
-    for pt in rightSide:
-        outline.append(pt)
+    stbdImage = Image.fromarray(stbdChannel)
+    mergedImage = mergeImages(portImage, stbdImage)
+    mergedImage.show()
+    mergedImage.save(os.path.splitext(filename)[0]+'.png')
+    # m3= mergedImage.resize((mergedImage.width, mergedImage.height))
+    # m3.save(os.path.splitext(filename)[0]+'.png')
         
-    # print("creating geometry...")
-    if len(outline) > 2:    
-        shp_pg.poly(parts=[outline]) #write the geometry
-        shp_pg.record(fileName)              
-        leftSide.clear()
-        rightSide.clear()
-    # else:
-        # print("oops, no geometry!!")
-def computeNadir(filename, shp_pt, shp_pg):
+# maxSamples lets us know how wide to make the beam correciton table.  This is computed by a pre-iteration stage
+def computeBC(filename, samplesPortSum, samplesPortCount, samplesStbdSum, samplesStbdCount, segmentInterval):
 
-    leftSide = [] #storage for the left side of the nadir polygon
-    rightSide = [] #storage for the left side of the nadir polygon.  This will be added to teh right side to close the polygon
-    prevEast = 0 
-
-    #   open the trackplot file for reading 
+    #   open the XTF file for reading 
     print ("Opening file:", filename)
     r = pyXTF.XTFReader(filename)
     while r.moreData():
         pingHdr = r.readPing()
-        if prevEast == 0:
-            prevEast = pingHdr.SensorXcoordinate
-            prevNorth = pingHdr.SensorYcoordinate
-            prevAltitude = pingHdr.SensorPrimaryAltitude
-            continue
-            
-        currEast = pingHdr.SensorXcoordinate
-        currNorth = pingHdr.SensorYcoordinate
-        currAltitude = pingHdr.SensorPrimaryAltitude
-
-        #add ping position to a shape file for QC purposes
-        shp_pt.point(currEast,currNorth)
-        shp_pt.record(filename, str(currAltitude))
- 
-        # compute the range based on the user requesting either coverage polygons or nadir gap polygins
-        currRange = calcGap(currAltitude)
-
-        if isValidGap(currAltitude, currRange) == False:
-            if len(leftSide) > 2:
-                savePolygon(leftSide, rightSide, shp_pg, shp_pt, filename)
-            continue
-
-        if (pingHdr.SensorXcoordinate < 180) & (pingHdr.SensorYcoordinate < 90):
-            #compute with geographical data
-            # rng, currBearing, backBearing = geodetic.vinc_dist(prevNorth, prevEast, currNorth, currEast )
-            currBearing = pingHdr.SensorHeading
-            # compute the left side and add to a list
-            leftSideNorthing, leftSideEasting, alpha21 = geodetic.vincentyDirect(currNorth, currEast, currBearing - 90, currRange)
-            leftSide.append([leftSideEasting,leftSideNorthing])
-            # shp_pt.point(leftSideEasting,leftSideNorthing)
-            # shp_pt.record(currAltitude)
-
-            # compute the right side and add to a list 
-            rightSideNorthing, rightSideEasting, alpha21 = geodetic.vincentyDirect(currNorth, currEast, currBearing + 90, currRange)
-            rightSide.append([rightSideEasting,rightSideNorthing])
-            # shp_pt.point(rightSideEasting,rightSideNorthing)
-            # shp_pt.record(currAltitude)  
-        else:
-            # compute with grid data
-            # calculate the heading instead of using the gyro field. it is not always present! 
-            rng, currBearing = calculateRangeBearingFromPosition(prevEast, prevNorth, currEast, currNorth)
-            currBearing = pingHdr.SensorHeading
-            # compute the left side and add to a list
-            leftSideEasting, leftSideNorthing = calculatePositionFromRangeBearing(currEast, currNorth, currRange, currBearing - 90.0)
-            leftSide.append([leftSideEasting,leftSideNorthing])
-            # shp_pt.point(leftSideEasting,leftSideNorthing)
-            # shp_pt.record(currAltitude)
-            
-            # compute the right side and add to a list
-            rightSideEasting, rightSideNorthing = calculatePositionFromRangeBearing(currEast, currNorth, currRange, currBearing + 90.0)
-            rightSide.append([rightSideEasting,rightSideNorthing])
-            # shp_pt.point(rightSideEasting,rightSideNorthing)
-            # shp_pt.record(currAltitude)  
+        segment = altitudeToSegment(pingHdr.SensorPrimaryAltitude, segmentInterval)
         
-        prevEast = currEast
-        prevNorth = currNorth
-        prevAltitude = currAltitude
+        samplesPortSum[segment] = np.add(samplesPortSum[segment], pingHdr.pingChannel[0].data)            
+        samplesPortCount[segment] = np.add(samplesPortCount[segment],1)            
+        
+        samplesStbdSum[segment] = np.add(samplesStbdSum[segment], pingHdr.pingChannel[1].data)            
+        samplesStbdCount[segment] = np.add(samplesStbdCount[segment],1)            
 
-        if pingHdr.PingNumber % 500 == 0:
-            print ("Ping: %f, X: %f, Y: %f, A: %f Range: %f Bearing %f" % (pingHdr.PingNumber, currEast, currNorth, currAltitude, currRange, currBearing))               
+        if pingHdr.PingNumber % 1000 == 0:
+            print ("Ping: %f" % (pingHdr.PingNumber))                  
     
     print("Complete reading XTF file :-)")
-
-    savePolygon(leftSide, rightSide, shp_pg, shp_pt, filename)
-
-    # w.poly(parts=[[[1,3],[5,3]]], shapeType=shapefile.POLYLINE)
-    # w.field('FIRST_FLD','C','40')
-    # w.field('SECOND_FLD','C','40')
-    # w.record('First','Line')
-    # w.record('Second','Line')
-    # w.save('shapefiles/test/line')
-
-def isHeader(row):
-    for word in row:
-        if "#" in word: #skip headers
-            return True
-    return False
-
+    return (samplesPortSum, samplesPortCount, samplesStbdSum, samplesStbdCount)
+    
 if __name__ == "__main__":
     main()
-
-    # east, north = calculatePositionFromRangeBearing(1000.00, 1000, 10, 0)
-    # calculatePositionFromRangeBearing(1000.00, 1000, 10, 90)
-    # calculatePositionFromRangeBearing(1000.00, 1000, 10, 180)
-    # calculatePositionFromRangeBearing(1000.00, 1000, 10, 270)

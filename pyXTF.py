@@ -8,6 +8,7 @@
 
 # XTF BYTE = 1 byte = "b"
 # XTFWORD = signed int 2 bytes = h
+# XTFWORD = UNsigned int 2 bytes = H (for unipolar data)
 # DWORD = unsigned int 4 bytes = "L"
 # short = short integer 2 bytes = "h"
 # char = 1 byte = "c"
@@ -20,7 +21,7 @@ import struct
 import os.path
 
 class XTFPINGHEADER:
-    def __init__(self, fileptr):
+    def __init__(self, fileptr, XTFFileHdr):
         XTFPingHeader_fmt = '=h2b3hLh6bh2L2fL21f2d2h 4b2f2d4h10flfl4b2hB11b'
         XTFPingHeader_len = struct.calcsize(XTFPingHeader_fmt)
         XTFPingHeader_unpack = struct.Struct(XTFPingHeader_fmt).unpack_from
@@ -110,14 +111,14 @@ class XTFPINGHEADER:
         # now read the chaninfo records.  This is more complex than it needs to be, but for now, read six channels
         self.pingChannel =[]
         for i in range(self.NumChansToFollow):
-            ping = XTFPINGCHANHEADER(fileptr)
+            ping = XTFPINGCHANHEADER(fileptr, XTFFileHdr, i)
             self.pingChannel.append(ping)
 
     def __str__(self):
         return (pprint.pformat(vars(self)))        
                 
 class XTFPINGCHANHEADER:
-    def __init__(self, fileptr):
+    def __init__(self, fileptr, XTFFileHdr, channelIndex):
         XTFPingChanHeader_fmt = '=2h5f5hLh2bLhf2bfh4b'
         XTFPingChanHeader_len = struct.calcsize(XTFPingChanHeader_fmt)
         XTFPingChanHeader_unpack = struct.Struct(XTFPingChanHeader_fmt).unpack_from
@@ -151,12 +152,24 @@ class XTFPINGCHANHEADER:
         self.ReservedSpace2                   = s[24]
         self.ReservedSpace3                   = s[25]
         self.ReservedSpace4                   = s[26]
-        
+
+        if XTFFileHdr.XTFChanInfo[channelIndex].UniPolar == 0: #polar mean signed data
+            if XTFFileHdr.XTFChanInfo[channelIndex].BytesPerSample == 1: #1 byte per sample
+                XTFdata_fmt = '=' + str(self.NumSamples) + 'b'
+            else:
+                XTFdata_fmt = '=' + str(self.NumSamples) + 'h'                
+        else:
+            # we are using unipolar data
+            if XTFFileHdr.XTFChanInfo[channelIndex].BytesPerSample == 1: #1 byte per sample
+                XTFdata_fmt = '=' + str(self.NumSamples) + 'B'
+            else:
+                XTFdata_fmt = '=' + str(self.NumSamples) + 'H'                
+            
         #now read the sonar data
-        XTFdata_fmt = '=' + str(self.NumSamples) + 'h'
         XTFdata_len = struct.calcsize(XTFdata_fmt)
         XTFdata_unpack = struct.Struct(XTFdata_fmt).unpack_from
-        self.data = fileptr.read(XTFdata_len)
+        blob = fileptr.read(XTFdata_len)
+        self.data = XTFdata_unpack(blob)
 
         return
         
@@ -266,11 +279,11 @@ class XTFReader:
         return bytesRemaining
                 
     def readPing(self):
-        ping = XTFPINGHEADER(self.fileptr)
+        ping = XTFPINGHEADER(self.fileptr, self.XTFFileHdr )
         return ping
     
     def readChannel(self):        
-        return XTFPINGCHANHEADER(self.fileptr)
+        return XTFPINGCHANHEADER(self.fileptr, self.XTFFileHdr)
          
 if __name__ == "__main__":
     r = XTFReader("C:/development/python/SonarNadirCalculator/01064_m66c448_SSS_20151219_205405_HH_HuginES7_GA4450_P_compressed.xtf")
