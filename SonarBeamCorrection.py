@@ -6,10 +6,11 @@
 #version 1.00
 
 #2DO
-# do we need to take into account changes in sample frequency.  THis will screw up the BC table 
+# auto compute the approximate Y scale form the sample rate so the waterfall image is approximately isometric
 # add support for altitude based BC tables.  This means compute the altitude range, then segment on a regular intervel (default 1m)
-#DONE
 
+#DONE
+# do we need to take into account changes in sample frequency.  THis will screw up the BC table 
 # based on XTF version 26 18/12/2008
 # based on existing SonarCoverage.py script
 # initial implementation
@@ -21,6 +22,7 @@ import csv
 import pyXTF
 import geodetic
 import os
+import datetime
 from glob import glob
 import time
 import numpy as np
@@ -141,6 +143,7 @@ def getSampleRange(filename):
     maxSamplesPort = 0
     maxSamplesStbd = 0
     minAltitude = 99999
+    maxRange = 0
     maxAltitude = 0
     pingCount = 0
     #   open the XTF file for reading 
@@ -152,8 +155,15 @@ def getSampleRange(filename):
         maxSamplesStbd = max(pingHdr.pingChannel[1].NumSamples, maxSamplesStbd)
         minAltitude = min(minAltitude, pingHdr.SensorPrimaryAltitude)
         maxAltitude = max(maxAltitude, pingHdr.SensorPrimaryAltitude)
+        maxRange = max(maxRange, pingHdr.pingChannel[0].SlantRange)
+        
+        d = datetime.date(pingHdr.Year, pingHdr.Month, pingHdr.day)
+        t = datetime.time(pingHdr.Hour, pingHdr.Minute, pingHdr.Second)
+        dt = datetime.datetime.combine(d, t)
+        print 'dt:', dt
+
         pingCount = pingCount + 1
-    return maxSamplesPort, maxSamplesStbd, minAltitude, maxAltitude, pingCount
+    return maxSamplesPort, maxSamplesStbd, minAltitude, maxAltitude, maxRange, pingCount
 
 # compute the segment from the altitude in a standard manner.  
 def altitudeToSegment(altitude, segmentInterval):    
@@ -163,43 +173,87 @@ def altitudeToSegment(altitude, segmentInterval):
 
 # create a simple waterfall image from the sonar data using standard nunmpy and PIL python pachakages
 def createWaterfall(filename):
-
+    yStretch = 2
     decimation = 4
     #compute the size of the array we will need to create
-    maxSamplesPort, maxSamplesStbd, minAltitude, maxAltitude, pingCount= getSampleRange(filename)
+    maxSamplesPort, maxSamplesStbd, minAltitude, maxAltitude, maxSlantRange, pingCount= getSampleRange(filename)
+    
+    acrossTrackSampleInterval = (maxSlantRange / maxSamplesPort) * decimation # sample interval in metres
+    
+    alongTrackSampleInterval = 2 # assume 4 knots
+    
+    yStretch = math.ceil(alongTrackSampleInterval / acrossTrackSampleInterval)
+    
+    # portChannel = np.zeros((pingCount, maxSamplesPort), dtype=np.int16  )
+    # stbdChannel = np.zeros((pingCount, maxSamplesStbd), dtype=np.int16  )
 
     #   open the XTF file for reading 
     print ("Opening file:", filename)
     r = pyXTF.XTFReader(filename)
-    portChannel = np.zeros((pingCount, maxSamplesPort), dtype=np.int16  )
-    stbdChannel = np.zeros((pingCount, maxSamplesStbd), dtype=np.int16  )
-    ping = 0
-    print ("Creating waterfall image...")
+    # ping = 0
+    pc = []
+    sc = []
+    
+    print ("Loading Data...")
     while r.moreData():
         pingHdr = r.readPing()
-        portChannel[ping] = pingHdr.pingChannel[0].data            
-        # portChannel[ping] = np.add(portChannel[ping], pingHdr.pingChannel[0].data[::decimation])            
-        stbdChannel[ping] = np.add(stbdChannel[ping], pingHdr.pingChannel[1].data)            
-        ping = ping + 1
-        # if ping == 1000:
-        #     break
-        if portChannel.min() < 0:
-             print("negative", portChannel.min())
+        for i in range (yStretch):
+            pc.append(pingHdr.pingChannel[0].data[::decimation])            
+            sc.append(pingHdr.pingChannel[1].data[::decimation])            
+        # ping = ping + 1
 
-    np.clip(portChannel, 0, 16)
-    p = portChannel.astype('uint8')
+    print ("Converting to Image...")
+    portImage = samplesToImage(pc)
+    stbdImage = samplesToImage(sc)
 
-    # portChannel //= 1000 
-    portImage = Image.fromarray(p)
-    # portImage = Image.fromarray(portChannel)
-    
-    stbdImage = Image.fromarray(stbdChannel)
-    mergedImage = mergeImages(portImage, stbdImage)
+    #merge the images into a single image and save to disc
+    print ("Merging Channels to single image...")
+    mergedImage = mergeImages(portImage, stbdImage).convert('L')
     mergedImage.show()
+    print ("Saving Image...")    
     mergedImage.save(os.path.splitext(filename)[0]+'.png')
-    # m3= mergedImage.resize((mergedImage.width, mergedImage.height))
-    # m3.save(os.path.splitext(filename)[0]+'.png')
         
+def samplesToImage(samples):
+    zg_LL = 5 # min and max grey scales
+    zg_UL = 250
+
+    #create numpy arrays so we can compute stats
+    channel = np.array(samples)
+    
+    # now filter for outliers
+    # import scipy
+    
+    channelMin = channel.min()
+    channelMax = channel.max()
+    
+    if channelMin > 0:
+        zs_LL = math.log(channelMin)
+    else:
+        zs_LL = 0
+    if channelMax > 0:
+        zs_UL = math.log(channelMax)
+    else:
+        zs_UL = 0
+    
+    if (zs_UL - zs_LL) is not 0:
+        conv_01_99 = ( zg_UL - zg_LL ) / ( zs_UL - zs_LL )
+   
+    #we can expect some divide by zero errors, so suppress 
+    np.seterr(divide='ignore')
+    channel = np.log(samples)
+    channel = np.subtract(channel, zs_LL)
+    channel = np.multiply(channel, conv_01_99)
+    channel = np.subtract(zg_UL, channel)
+    ch = channel.astype('uint8')
+    image = Image.fromarray(ch).convert('L')
+    
+    from PIL import ImageFilter
+    im2 = image.filter(ImageFilter.MedianFilter(3))
+
+    return im2
+    
+    
+    
 # maxSamples lets us know how wide to make the beam correciton table.  This is computed by a pre-iteration stage
 def computeBC(filename, samplesPortSum, samplesPortCount, samplesStbdSum, samplesStbdCount, segmentInterval):
 
