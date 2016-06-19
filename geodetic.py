@@ -2,61 +2,114 @@
 #
 # --------------------------------------------------------------------- 
 # |                                                                     |
-# |	geodetic.cc -  a collection of geodetic functions                   |
-# |	Jim Leven  - Dec 99                                                 |
+# |	geodetic.cc -  a collection of geodetic functions               |
+# |	Paul Kennedy May 2016                                           |
+# |	Jim Leven  - Dec 99                                             |
 # |                                                                     |
 # | originally from:                                                    |
-# | http://wegener.mechanik.tu-darmstadt.de/GMT-Help/Archiv/att-8710/Geodetic_py |                                                                   |
-# |ftp://pdsimage2.wr.usgs.gov/pub/pigpen/Python/Geodetic_py.py			|
+# | http://wegener.mechanik.tu-darmstadt.de/GMT-Help/Archiv/att-8710/Geodetic_py |
+# |ftp://pdsimage2.wr.usgs.gov/pub/pigpen/Python/Geodetic_py.py		|
 # |                                                                     |
 # --------------------------------------------------------------------- 
 # 
 # 
-# ----------------------------------------------------------------------
-# | Algrothims from Geocentric Datum of Australia Technical Manual	    |
-# | 								                                    |
+# ------------------------------------------------------------------------------
+# | Algrothims from Geocentric Datum of Australia Technical Manual	        |
+# | 								                |
 # | http://www.anzlic.org.au/icsm/gdatum/chapter4.html	        		|
-# | 								                                    |
-# | This page last updated 11 May 1999 	                				|
-# | 								                                    |
-# | Computations on the Ellipsoid	                    				|
-# | 								                                    |
+# | 								                |
+# | This page last updated 11 May 1999 	                			|
+# | 								                |
+# | Computations on the Ellipsoid	                    			|
+# | 								                |
 # | There are a number of formulae that are available           		|
 # | to calculate accurate geodetic positions, 		            		|
 # | azimuths and distances on the ellipsoid.			                |
-# | 								                                    |
-# | Vincenty's formulae (Vincenty, 1975) may be used 		            |
-# | for lines ranging from a few cm to nearly 20,000 km, 	            |
-# | with millimetre accuracy. 					                        |
-# | The formulae have been extensively tested 		                    |
+# | 								                |
+# | Vincenty's formulae (Vincenty, 1975) may be used 		                |
+# | for lines ranging from a few cm to nearly 20,000 km, 	                |
+# | with millimetre accuracy. 					                |
+# | The formulae have been extensively tested 		                        |
 # | for the Australian region, by comparison with results       		|
-# | from other formulae (Rainsford, 1955 & Sodano, 1965). 	            |
-# |								                                        |
+# | from other formulae (Rainsford, 1955 & Sodano, 1965). 	                |
+# |								                |
 # | * Inverse problem: azimuth and distance from known 	        		|
-# |			latitudes and longitudes 			                        |
-# | * Direct problem: Latitude and longitude from known 	            |
-# |			position, azimuth and distance. 		                    |
-# | * Sample data 						                                |
-# | * Excel spreadsheet 			                            		|
-# | 								                                    |
-# | Vincenty's Inverse formulae				                    		|
+# |			latitudes and longitudes 			        |
+# | * Direct problem: Latitude and longitude from known 	                |
+# |			position, azimuth and distance. 		        |
+# | * Sample data 						                |
+# | * Excel spreadsheet 			                            	|
+# | 								                |
+# | Vincenty's Inverse formulae				                    	|
 # | Given: latitude and longitude of two points                 		|
-# |			(latitude1, longitude1 and latitude2, longitude2), 	                        |
+# |			(latitude1, longitude1 and latitude2, longitude2), 	|
 # | Calculate: the ellipsoidal distance (s) and 	            		|
-# | forward and reverse azimuths between the points (alpha12, alpha21).	|
-# |									                                    |
-# ---------------------------------------------------------------------- 
+# | forward and reverse azimuths between the points (alpha1Tp2, alpha21).	|
+# |									        |
+# ------------------------------------------------------------------------------
 
 import math
+import numpy as np
 
-# def vinc_dist(  f,  a,  latitude1,  longitude1,  latitude2,  longitude2 ) :
-def vinc_dist(latitude1,  longitude1,  latitude2,  longitude2 ) :
+
+def medfilt (x, k):
+    """Apply a length-k median filter to a 1D array x.
+    Boundaries are extended by repeating endpoints.
+    """
+    assert k % 2 == 1, "Median filter length must be odd."
+    assert x.ndim == 1, "Input must be one-dimensional."
+    k2 = (k - 1) // 2
+    y = np.zeros ((len (x), k), dtype=x.dtype)
+    y[:,k2] = x
+    for i in range (k2):
+        j = k2 - i
+        y[j:,i] = x[:-j]
+        y[:j,i] = x[0]
+        y[:-j,-(i+1)] = x[j:]
+        y[-j:,-(i+1)] = x[-1]
+    return np.median (y, axis=1)
+    
+# from: http://mathforum.org/library/drmath/view/62034.html
+def calculateRangeBearingFromGridPosition(easting1, northing1, easting2, northing2):
+    """given 2 east, north, pairs, compute the range and bearing"""
+
+    dx = easting2-easting1
+    dy = northing2-northing1
+
+    bearing = 90 - (180/math.pi)*math.atan2(northing2-northing1, easting2-easting1)
+    return (math.sqrt((dx*dx)+(dy*dy)), bearing)
+
+
+# taken frm http://gis.stackexchange.com/questions/76077/how-to-create-points-based-on-the-distance-and-bearing-from-a-survey-point
+def calculateGridPositionFromRangeBearing(easting, northing, distance, bearing):
+    """given an east, north, range and bearing, compute a new coordinate on the grid"""
+    point =   (easting, northing)
+    angle =   90 - bearing
+    bearing = math.radians(bearing)
+    angle =   math.radians(angle)
+
+    # polar coordinates
+    dist_x = distance * math.cos(angle)
+    dist_y = distance * math.sin(angle)
+
+    xfinal = point[0] + dist_x
+    yfinal = point[1] + dist_y
+
+    # direction cosines
+    cosa = math.cos(angle)
+    cosb = math.cos(bearing)
+    xfinal = point[0] + (distance * cosa)
+    yfinal = point[1] + (distance * cosb)
+    
+    return [xfinal, yfinal]
+
+def calculateRangeBearingFromGeographicals(longitude1, latitude1,  longitude2,  latitude2 ) :
         """ 
-        Returns the distance between two geographic points on the ellipsoid
-        and the forward and reverse azimuths between these points.
+        Returns s, the distance between two geographic points on the ellipsoid
+        and alpha1, alpha2, the forward and reverse azimuths between these points.
         lats, longs and azimuths are in decimal degrees, distance in metres 
 
-        Returns ( s, alpha12,  alpha21 ) as a tuple
+        Returns ( s, alpha1Tp2,  alpha21 ) as a tuple
         """
         f = 1.0 / 298.257223563		# WGS84
         a = 6378137.0 			# metres
@@ -124,16 +177,16 @@ def vinc_dist(latitude1,  longitude1,  latitude2,  longitude2 ) :
 
         s = b * A * (sigma - delta_sigma)
 
-        alpha12 = math.atan2( (math.cos(U2) * math.sin(lembda)), \
+        alpha1Tp2 = math.atan2( (math.cos(U2) * math.sin(lembda)), \
                 (math.cos(U1) * math.sin(U2) - math.sin(U1) * math.cos(U2) * math.cos(lembda)))
 
         alpha21 = math.atan2( (math.cos(U1) * math.sin(lembda)), \
                 (-math.sin(U1) * math.cos(U2) + math.cos(U1) * math.sin(U2) * math.cos(lembda)))
 
-        if ( alpha12 < 0.0 ) : 
-                alpha12 =  alpha12 + two_pi
-        if ( alpha12 > two_pi ) : 
-                alpha12 = alpha12 - two_pi
+        if ( alpha1Tp2 < 0.0 ) : 
+                alpha1Tp2 =  alpha1Tp2 + two_pi
+        if ( alpha1Tp2 > two_pi ) : 
+                alpha1Tp2 = alpha1Tp2 - two_pi
 
         alpha21 = alpha21 + two_pi / 2.0
         if ( alpha21 < 0.0 ) : 
@@ -141,9 +194,9 @@ def vinc_dist(latitude1,  longitude1,  latitude2,  longitude2 ) :
         if ( alpha21 > two_pi ) : 
                 alpha21 = alpha21 - two_pi
 
-        alpha12    = alpha12    * 45.0 / piD4
+        alpha1Tp2    = alpha1Tp2    * 45.0 / piD4
         alpha21    = alpha21    * 45.0 / piD4
-        return s, alpha12,  alpha21 
+        return s, alpha1Tp2,  alpha21 
 
    # END of Vincenty's Inverse formulae 
 
@@ -151,7 +204,7 @@ def vinc_dist(latitude1,  longitude1,  latitude2,  longitude2 ) :
 #-------------------------------------------------------------------------------
 # Vincenty's Direct formulae							|
 # Given: latitude and longitude of a point (latitude1, longitude1) and 			|
-# the geodetic azimuth (alpha12) 						|
+# the geodetic azimuth (alpha1Tp2) 						|
 # and ellipsoidal distance in metres (s) to a second point,			|
 # 										|
 # Calculate: the latitude and longitude of the second point (latitude2, longitude2) 	|
@@ -159,14 +212,13 @@ def vinc_dist(latitude1,  longitude1,  latitude2,  longitude2 ) :
 # 										|
 #-------------------------------------------------------------------------------
 
-def vincentyDirect(latitude1, longitude1, alpha12, s ) :
+def calculateGeographicalPositionFromRangeBearing(latitude1, longitude1, alpha1To2, s ) :
         """
-
         Returns the lat and long of projected point and reverse azimuth
         given a reference point and a distance and azimuth to project.
         lats, longs and azimuths are passed in decimal degrees
 
-        Returns ( latitude2,  lambda2,  alpha21 ) as a tuple 
+        Returns ( latitude2,  longitude2,  alpha2To1 ) as a tuple 
 
         """
         f = 1.0 / 298.257223563		# WGS84
@@ -177,18 +229,18 @@ def vincentyDirect(latitude1, longitude1, alpha12, s ) :
 
         latitude1    = latitude1    * piD4 / 45.0
         longitude1 = longitude1 * piD4 / 45.0
-        alpha12 = alpha12 * piD4 / 45.0
-        if ( alpha12 < 0.0 ) : 
-                alpha12 = alpha12 + two_pi
-        if ( alpha12 > two_pi ) : 
-                alpha12 = alpha12 - two_pi
+        alpha1To2 = alpha1To2 * piD4 / 45.0
+        if ( alpha1To2 < 0.0 ) : 
+                alpha1To2 = alpha1To2 + two_pi
+        if ( alpha1To2 > two_pi ) : 
+                alpha1To2 = alpha1To2 - two_pi
 
         b = a * (1.0 - f)
 
         TanU1 = (1-f) * math.tan(latitude1)
         U1 = math.atan( TanU1 )
-        sigma1 = math.atan2( TanU1, math.cos(alpha12) )
-        Sinalpha = math.cos(U1) * math.sin(alpha12)
+        sigma1 = math.atan2( TanU1, math.cos(alpha1To2) )
+        Sinalpha = math.cos(U1) * math.sin(alpha1To2)
         cosalpha_sq = 1.0 - Sinalpha * Sinalpha
 
         u2 = cosalpha_sq * (a * a - b * b ) / (b * b)
@@ -218,12 +270,12 @@ def vincentyDirect(latitude1, longitude1, alpha12, s ) :
                 last_sigma = sigma
                 sigma = (s / (b * A)) + delta_sigma
 
-        latitude2 = math.atan2 ( (math.sin(U1) * math.cos(sigma) + math.cos(U1) * math.sin(sigma) * math.cos(alpha12) ), \
+        latitude2 = math.atan2 ( (math.sin(U1) * math.cos(sigma) + math.cos(U1) * math.sin(sigma) * math.cos(alpha1Tp2) ), \
                 ((1-f) * math.sqrt( math.pow(Sinalpha, 2) +  \
-                pow(math.sin(U1) * math.sin(sigma) - math.cos(U1) * math.cos(sigma) * math.cos(alpha12), 2))))
+                pow(math.sin(U1) * math.sin(sigma) - math.cos(U1) * math.cos(sigma) * math.cos(alpha1Tp2), 2))))
 
-        lembda = math.atan2( (math.sin(sigma) * math.sin(alpha12 )), (math.cos(U1) * math.cos(sigma) -  \
-                math.sin(U1) *  math.sin(sigma) * math.cos(alpha12)))
+        lembda = math.atan2( (math.sin(sigma) * math.sin(alpha1Tp2 )), (math.cos(U1) * math.cos(sigma) -  \
+                math.sin(U1) *  math.sin(sigma) * math.cos(alpha1Tp2)))
 
         C = (f/16) * cosalpha_sq * (4 + f * (4 - 3 * cosalpha_sq ))
 
@@ -234,7 +286,7 @@ def vincentyDirect(latitude1, longitude1, alpha12, s ) :
         longitude2 = longitude1 + omega
 
         alpha21 = math.atan2 ( Sinalpha, (-math.sin(U1) * math.sin(sigma) +  \
-                math.cos(U1) * math.cos(sigma) * math.cos(alpha12)))
+                math.cos(U1) * math.cos(sigma) * math.cos(alpha1Tp2)))
 
         alpha21 = alpha21 + two_pi / 2.0
         if ( alpha21 < 0.0 ) :
@@ -334,13 +386,13 @@ if __name__ == "__main__" :
         sec = abs(longitude2 * 3600 - deg * 3600) - min * 60
         print (" %3i\xF8%3i\' %6.3f\" \n" % ( deg, min, sec ))
 
-        dist, alpha12, alpha21   = vinc_dist  ( f, a, latitude1, longitude1, latitude2,  longitude2 )
+        dist, alpha1Tp2, alpha21   = vinc_dist  ( f, a, latitude1, longitude1, latitude2,  longitude2 )
 
         print ("\n Ellipsoidal Distance = %15.3f metres\n            should be         54972.271 m\n" % ( dist ))
-        print ("\n Forward and back azimuths = %15.6f, %15.6f \n" % ( alpha12, alpha21 ))
-        deg = int(alpha12)
-        min = int( abs(( alpha12 - deg) * 60.0 ) )
-        sec = abs(alpha12 * 3600 - deg * 3600) - min * 60
+        print ("\n Forward and back azimuths = %15.6f, %15.6f \n" % ( alpha1Tp2, alpha21 ))
+        deg = int(alpha1Tp2)
+        min = int( abs(( alpha1Tp2 - deg) * 60.0 ) )
+        sec = abs(alpha1Tp2 * 3600 - deg * 3600) - min * 60
         print (" Forward azimuth = %3i\xF8%3i\' %6.3f\"\n" % ( deg, min, sec ))
         deg = int(alpha21)
         min = int(abs( ( alpha21 - deg) * 60.0 ))
@@ -352,11 +404,11 @@ if __name__ == "__main__" :
         latitude1 = -(( 3.7203 / 60. + 57) / 60. + 37 )
         longitude1 = ( 29.5244 / 60. + 25) / 60. + 144
         dist = 54972.271
-        alpha12 = ( 5.37 / 60. + 52) / 60. + 306
+        alpha1Tp2 = ( 5.37 / 60. + 52) / 60. + 306
         latitude2 = longitude2 = 0.0
         alpha21 = 0.0
 
-        latitude2, longitude2, alpha21 = vincentyDirect (latitude1, longitude1, alpha12, dist )
+        latitude2, longitude2, alpha21 = vincentyDirect (latitude1, longitude1, alpha1Tp2, dist )
 
         print ("\n Projected point =%11.6f, %13.6f \n" % ( latitude2, longitude2 ))
         deg = int(latitude2)

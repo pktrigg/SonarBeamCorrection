@@ -6,10 +6,19 @@
 #version 1.00
 
 #2DO
-# auto compute the approximate Y scale form the sample rate so the waterfall image is approximately isometric
 # add support for altitude based BC tables.  This means compute the altitude range, then segment on a regular intervel (default 1m)
+# add support for user selection of palette.  Use the edgetech discover palettes files.  default to be greyscale
+# add support for logarithmic color ramp
+# add support for color ramp scaling to the command line (min/max value)
+# add support to enable / disable median filter
+# add support for channel selection, 0,1 or 2,3  default is 0,1
+# add support for stretch and decimation instead of auto computing based on navigation.  We may well not have navigation!
+
 
 #DONE
+# current performane is 27 econds to process 8000 pings (half an hour of AUV collection.  This is ok
+# added a simple waterfall image creation funciton.  We can use this to confirm the beam correction is valid
+# auto compute the approximate Y scale form the sample rate so the waterfall image is approximately isometric
 # do we need to take into account changes in sample frequency.  THis will screw up the BC table 
 # based on XTF version 26 18/12/2008
 # based on existing SonarCoverage.py script
@@ -22,34 +31,23 @@ import csv
 import pyXTF
 import geodetic
 import os
-import datetime
+from datetime import datetime
 from glob import glob
 import time
 import numpy as np
 from PIL import Image
 
-# we calculate teh angle in degrees from the altitude and sample number
-def calcAngleFromSample(altitude):
-    return (altitude * 0.70) / 2.0
-
-def calculateRangeBearingFromPosition(easting1, northing1, easting2, northing2):
-    """given 2 east, north, pairs, compute the range and bearing"""
-
-    dx = easting2-easting1
-    dy = northing2-northing1
-
-    bearing = 90 - (180/math.pi)*math.atan2(northing2-northing1, easting2-easting1)
-    return (math.sqrt((dx*dx)+(dy*dy)), bearing)
-
 def main():
 
     start_time = time.time() # time the process
     parser = argparse.ArgumentParser(description='Read XTF file and create either a coverage or Nadir gap polygon.')
-    parser.add_argument('-c', action='store_true', default=False, dest='createBC', help='-c compute a new Beam Correction file based on contents of XTF file[s]')
+    parser.add_argument('-c', action='store_true', default=False, dest='createBC', help='-c : compute a new Beam Correction file based on contents of XTF file[s]')
     parser.add_argument('-i', dest='inputFile', action='store', help='-i <XTFfilename> input XTF filename to analyse')
-    parser.add_argument('-w', dest='createWaterfall', default = False, action='store_true', help='-w create a waterfall image from the XTF file')
-    parser.add_argument('-o', dest='outputFile', action='store', help='-o <filename> output Beam Correction filename.  [default = BC.csv]')
+    parser.add_argument('-color', dest='color', default = 'graylog', action='store', help='-color : specify the color palette.  Default is GrayLog for a grayscale logarithmic palette. Options are : -color yellow_brown_log, -color gray, -color yellow_brown or any of the palette filenames in the script folder')
+    parser.add_argument('-invert', dest='invert', default = False, action='store_true', help='-invert : inverts the color palette')
+    parser.add_argument('-o', dest='outputFile', action='store', help='-o <filename> : output Beam Correction filename.  [default = BC.csv]')
     parser.add_argument('-odix', dest='outputFolder', action='store', help='-odix <folder> output folder to store Beam Correction file.  If not specified, the files will be alongside the input XTF file')
+    parser.add_argument('-w', dest='createWaterfall', default = False, action='store_true', help='-w : create a waterfall image from the XTF file')
     
     if len(sys.argv)==1:
         parser.print_help()
@@ -89,7 +87,7 @@ def main():
         if args.createBC:       
             samplesPortSum, samplesPortCount, samplesStbdSum, samplesStbdCount = computeBC(filename, samplesPortSum, samplesPortCount, samplesStbdSum, samplesStbdCount, segmentInterval)
         if args.createWaterfall:       
-            createWaterfall(filename)
+            createWaterfall(filename, args.invert, args.color)
         else:
             print ("option not yet implemented!.  Try '-n' to compute nadir gaps")
             exit (0)
@@ -134,7 +132,7 @@ def mergeImages(image1, image2):
     result_width = width1 + width2
     result_height = max(height1, height2)
 
-    result = Image.new('RGB', (result_width, result_height))
+    result = Image.new('L', (result_width, result_height))
     result.paste(im=image1, box=(0, 0))
     result.paste(im=image2, box=(width1, 0))
     return result
@@ -146,8 +144,17 @@ def getSampleRange(filename):
     maxRange = 0
     maxAltitude = 0
     pingCount = 0
+    pingTimes = []
+    
+    start_time = time.time() # time the process
+
+    print("Gathering data limits...")
     #   open the XTF file for reading 
     r = pyXTF.XTFReader(filename)
+    navigation = r.loadNavigation()
+    meanSpeed, navigation = r.computeSpeedFromPositions(navigation)
+    meanSpeed = 1
+    
     print ("computing range for file:", filename)
     while r.moreData():
         pingHdr = r.readPing()
@@ -156,14 +163,10 @@ def getSampleRange(filename):
         minAltitude = min(minAltitude, pingHdr.SensorPrimaryAltitude)
         maxAltitude = max(maxAltitude, pingHdr.SensorPrimaryAltitude)
         maxRange = max(maxRange, pingHdr.pingChannel[0].SlantRange)
-        
-        d = datetime.date(pingHdr.Year, pingHdr.Month, pingHdr.day)
-        t = datetime.time(pingHdr.Hour, pingHdr.Minute, pingHdr.Second)
-        dt = datetime.datetime.combine(d, t)
-        print 'dt:', dt
-
         pingCount = pingCount + 1
-    return maxSamplesPort, maxSamplesStbd, minAltitude, maxAltitude, maxRange, pingCount
+
+    print("--- %s.sss get Sample Range Duration ---" % (time.time() - start_time)) # print the processing time.
+    return maxSamplesPort, maxSamplesStbd, minAltitude, maxAltitude, maxRange, pingCount, meanSpeed, navigation
 
 # compute the segment from the altitude in a standard manner.  
 def altitudeToSegment(altitude, segmentInterval):    
@@ -172,56 +175,75 @@ def altitudeToSegment(altitude, segmentInterval):
     return segmentnumber
 
 # create a simple waterfall image from the sonar data using standard nunmpy and PIL python pachakages
-def createWaterfall(filename):
-    yStretch = 2
+def createWaterfall(filename, invert, colorScale):
+    yStretch = 0
     decimation = 4
     #compute the size of the array we will need to create
-    maxSamplesPort, maxSamplesStbd, minAltitude, maxAltitude, maxSlantRange, pingCount= getSampleRange(filename)
+    maxSamplesPort, maxSamplesStbd, minAltitude, maxAltitude, maxSlantRange, pingCount, meanSpeed, navigation = getSampleRange(filename)
     
     acrossTrackSampleInterval = (maxSlantRange / maxSamplesPort) * decimation # sample interval in metres
     
-    alongTrackSampleInterval = 2 # assume 4 knots
+    # to make the image somewhat isometric, we need to compute the alongtrack sample interval.  this is based on the ping times, number of pings and mean speed  where distance = speed * duration
+    distance = meanSpeed * (navigation[-1].dateTime.timestamp() - navigation[0].dateTime.timestamp())
+    alongTrackSampleInterval = (distance / pingCount) / 2 # not sure why, but we need to scale this.
     
     yStretch = math.ceil(alongTrackSampleInterval / acrossTrackSampleInterval)
     
-    # portChannel = np.zeros((pingCount, maxSamplesPort), dtype=np.int16  )
-    # stbdChannel = np.zeros((pingCount, maxSamplesStbd), dtype=np.int16  )
-
     #   open the XTF file for reading 
     print ("Opening file:", filename)
     r = pyXTF.XTFReader(filename)
-    # ping = 0
     pc = []
     sc = []
     
     print ("Loading Data...")
     while r.moreData():
         pingHdr = r.readPing()
+
+        #create numpy arrays so we can compute stats
+        channel = np.array(pingHdr.pingChannel[0].data[::decimation])
+        channel = geodetic.medfilt(channel, 5)
+        filteredPortData = channel.tolist()
+
+        channel = np.array(pingHdr.pingChannel[1].data[::decimation])
+        channel = geodetic.medfilt(channel, 5)
+        filteredStbdData = channel.tolist()
+
+        # we need to stretch in the Y axis so the image looks isometric. 
         for i in range (yStretch):
-            pc.append(pingHdr.pingChannel[0].data[::decimation])            
-            sc.append(pingHdr.pingChannel[1].data[::decimation])            
-        # ping = ping + 1
+            pc.insert(0, filteredPortData)
+            sc.insert(0, filteredStbdData)
 
-    print ("Converting to Image...")
-    portImage = samplesToImage(pc)
-    stbdImage = samplesToImage(sc)
-
+    portImage = []
+    stbdImage = []
+    
+    if colorScale.lower() == "graylog": 
+        print ("Converting to Image with graylog scale...")
+        portImage = samplesToGrayImageLogarithmic(pc, invert)
+        stbdImage = samplesToGrayImageLogarithmic(sc, invert)
+    # elif:
+    else:
+        print ("Converting to Image with default gray log scale...")
+        portImage = samplesToGrayImageLogarithmic(pc, invert)
+        stbdImage = samplesToGrayImageLogarithmic(sc, invert)
+        
+        
     #merge the images into a single image and save to disc
     print ("Merging Channels to single image...")
-    mergedImage = mergeImages(portImage, stbdImage).convert('L')
-    mergedImage.show()
+    mergedImage = mergeImages(portImage, stbdImage)
     print ("Saving Image...")    
     mergedImage.save(os.path.splitext(filename)[0]+'.png')
-        
-def samplesToImage(samples):
-    zg_LL = 5 # min and max grey scales
-    zg_UL = 250
+    print ("Image saved to:", os.path.splitext(filename)[0]+'.png')    
 
-    #create numpy arrays so we can compute stats
-    channel = np.array(samples)
+# zg_LL = lower limit of grey scale
+# zg_UL = upper limit of grey scale
+# zs_LL = lower limit of samples range
+# zs_UL = upper limit of sample range
+def samplesToGrayImageLogarithmic(samples, invert):
+    zg_LL = 0 # min and max grey scales
+    zg_UL = 255
     
-    # now filter for outliers
-    # import scipy
+    #create numpy arrays so we can compute stats
+    channel = np.array(samples)   
     
     channelMin = channel.min()
     channelMax = channel.max()
@@ -235,6 +257,7 @@ def samplesToImage(samples):
     else:
         zs_UL = 0
     
+    # this scales from the range of image values to the range of output grey levels
     if (zs_UL - zs_LL) is not 0:
         conv_01_99 = ( zg_UL - zg_LL ) / ( zs_UL - zs_LL )
    
@@ -243,14 +266,14 @@ def samplesToImage(samples):
     channel = np.log(samples)
     channel = np.subtract(channel, zs_LL)
     channel = np.multiply(channel, conv_01_99)
-    channel = np.subtract(zg_UL, channel)
-    ch = channel.astype('uint8')
-    image = Image.fromarray(ch).convert('L')
+    if invert:
+        channel = np.subtract(zg_UL, channel)
+    else:
+        channel = np.add(zg_LL, channel)
+    # ch = channel.astype('uint8')
+    image = Image.fromarray(channel).convert('L')
     
-    from PIL import ImageFilter
-    im2 = image.filter(ImageFilter.MedianFilter(3))
-
-    return im2
+    return image
     
     
     
