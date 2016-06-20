@@ -13,7 +13,7 @@
                 "WaitOnNormalExit",
                 "RedirectOutput"
             ],
-            "args": ["-w", "-i",  "C:/development/python/ssh-0065-vsm3_16-20151122-182327_P_Rev2.xtf"]
+            "args": ["-w", "-color", "gray", "-i",  "C:/development/python/ssh-0065-vsm3_16-20151122-182327_P_Rev2.xtf"]
         }
    ]
 }

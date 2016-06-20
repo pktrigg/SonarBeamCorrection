@@ -220,7 +220,10 @@ def createWaterfall(filename, invert, colorScale):
         print ("Converting to Image with graylog scale...")
         portImage = samplesToGrayImageLogarithmic(pc, invert)
         stbdImage = samplesToGrayImageLogarithmic(sc, invert)
-    # elif:
+    elif colorScale.lower() == "gray":
+        print ("Converting to Image with gray scale...")
+        portImage = samplesToGrayImage(pc, invert)
+        stbdImage = samplesToGrayImage(sc, invert)
     else:
         print ("Converting to Image with default gray log scale...")
         portImage = samplesToGrayImageLogarithmic(pc, invert)
@@ -234,6 +237,57 @@ def createWaterfall(filename, invert, colorScale):
     mergedImage.save(os.path.splitext(filename)[0]+'.png')
     print ("Image saved to:", os.path.splitext(filename)[0]+'.png')    
 
+
+###################################
+# zg_LL = lower limit of grey scale
+# zg_UL = upper limit of grey scale
+# zs_LL = lower limit of samples range
+# zs_UL = upper limit of sample range
+def samplesToGrayImage(samples, invert):
+    zg_LL = 0 # min and max grey scales
+    zg_UL = 255
+    
+    #create numpy arrays so we can compute stats
+    channel = np.array(samples)   
+
+    # compute a histogram of teh data so we can auto clip the outliers
+    hist, binEdges = np.histogram(channel, bins=20)
+    print ("histogram", hist)
+    print ("Bin Edges", binEdges)
+
+    # channelMin = int (channel.min())
+    # channelMax = int (channel.max())
+    
+    channelMin = binEdges[1]
+    channelMax = binEdges[-5]
+    
+    if channelMin > 0:
+        zs_LL = channelMin
+    else:
+        zs_LL = 0
+    if channelMax > 0:
+        zs_UL = channelMax
+    else:
+        zs_UL = 0
+    
+    # this scales from the range of image values to the range of output grey levels
+    if (zs_UL - zs_LL) is not 0:
+        conv_01_99 = ( zg_UL - zg_LL ) / ( zs_UL - zs_LL )
+   
+    #we can expect some divide by zero errors, so suppress 
+    np.seterr(divide='ignore')
+    # channel = np.log(samples)
+    channel = np.subtract(channel, zs_LL)
+    channel = np.multiply(channel, conv_01_99)
+    if invert:
+        channel = np.subtract(zg_UL, channel)
+    else:
+        channel = np.add(zg_LL, channel)
+    image = Image.fromarray(channel).convert('L')
+    
+    return image
+
+###################################
 # zg_LL = lower limit of grey scale
 # zg_UL = upper limit of grey scale
 # zs_LL = lower limit of samples range
