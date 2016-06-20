@@ -24,6 +24,7 @@
 # based on existing SonarCoverage.py script
 # initial implementation
 
+import bisect
 import math
 import argparse
 import sys
@@ -44,6 +45,7 @@ def main():
     parser.add_argument('-c', action='store_true', default=False, dest='createBC', help='-c : compute a new Beam Correction file based on contents of XTF file[s]')
     parser.add_argument('-i', dest='inputFile', action='store', help='-i <XTFfilename> input XTF filename to analyse')
     parser.add_argument('-color', dest='color', default = 'graylog', action='store', help='-color : specify the color palette.  Default is GrayLog for a grayscale logarithmic palette. Options are : -color yellow_brown_log, -color gray, -color yellow_brown or any of the palette filenames in the script folder')
+    parser.add_argument('-clip', dest='clip', default = '0', action='store', help='-clip : clip the minimum and maximum edges of the data by this percentage so the color stretch better represents teh data.  Default - 0.  A good value is -clip 5.')
     parser.add_argument('-invert', dest='invert', default = False, action='store_true', help='-invert : inverts the color palette')
     parser.add_argument('-o', dest='outputFile', action='store', help='-o <filename> : output Beam Correction filename.  [default = BC.csv]')
     parser.add_argument('-odix', dest='outputFolder', action='store', help='-odix <folder> output folder to store Beam Correction file.  If not specified, the files will be alongside the input XTF file')
@@ -87,7 +89,7 @@ def main():
         if args.createBC:       
             samplesPortSum, samplesPortCount, samplesStbdSum, samplesStbdCount = computeBC(filename, samplesPortSum, samplesPortCount, samplesStbdSum, samplesStbdCount, segmentInterval)
         if args.createWaterfall:       
-            createWaterfall(filename, args.invert, args.color)
+            createWaterfall(filename, args.invert, args.color, args.clip)
         else:
             print ("option not yet implemented!.  Try '-n' to compute nadir gaps")
             exit (0)
@@ -175,7 +177,7 @@ def altitudeToSegment(altitude, segmentInterval):
     return segmentnumber
 
 # create a simple waterfall image from the sonar data using standard nunmpy and PIL python pachakages
-def createWaterfall(filename, invert, colorScale):
+def createWaterfall(filename, invert, colorScale, clip):
     yStretch = 0
     decimation = 4
     #compute the size of the array we will need to create
@@ -218,12 +220,12 @@ def createWaterfall(filename, invert, colorScale):
     
     if colorScale.lower() == "graylog": 
         print ("Converting to Image with graylog scale...")
-        portImage = samplesToGrayImageLogarithmic(pc, invert)
-        stbdImage = samplesToGrayImageLogarithmic(sc, invert)
+        portImage = samplesToGrayImageLogarithmic(pc, invert, clip)
+        stbdImage = samplesToGrayImageLogarithmic(sc, invert, clip)
     elif colorScale.lower() == "gray":
         print ("Converting to Image with gray scale...")
-        portImage = samplesToGrayImage(pc, invert)
-        stbdImage = samplesToGrayImage(sc, invert)
+        portImage = samplesToGrayImage(pc, invert, clip)
+        stbdImage = samplesToGrayImage(sc, invert, clip)
     else:
         print ("Converting to Image with default gray log scale...")
         portImage = samplesToGrayImageLogarithmic(pc, invert)
@@ -238,28 +240,40 @@ def createWaterfall(filename, invert, colorScale):
     print ("Image saved to:", os.path.splitext(filename)[0]+'.png')    
 
 
+def findMinMaxClipValues(channel, clip):
+    
+    # compute a histogram of teh data so we can auto clip the outliers
+    bins = np.arange(np.floor(channel.min()),np.ceil(channel.max()))
+    values, base = np.histogram(channel, bins=bins, density=1)    
+    # print ("histogram", values)
+    # print ("Bin Edges", base)
+
+    # instead of spreading across the entire data range, we can clip the outer n percent by using the cumsum.
+    # from the cumsum of histogram density, we can figure out what cut off sample amplitude removes n % of data
+    cumsum = np.cumsum(values)   
+    
+    minimumBinIndex = bisect.bisect(cumsum,clip/100)
+    maximumBinIndex = bisect.bisect(cumsum,(1-clip/100))
+
+    return minimumBinIndex, maximumBinIndex
+
 ###################################
 # zg_LL = lower limit of grey scale
 # zg_UL = upper limit of grey scale
 # zs_LL = lower limit of samples range
 # zs_UL = upper limit of sample range
-def samplesToGrayImage(samples, invert):
-    zg_LL = 0 # min and max grey scales
-    zg_UL = 255
+def samplesToGrayImage(samples, invert, clip):
+    zg_LL = 5 # min and max grey scales
+    zg_UL = 250
     
     #create numpy arrays so we can compute stats
-    channel = np.array(samples)   
+    channel = np.array(samples, clipPercent)   
 
-    # compute a histogram of teh data so we can auto clip the outliers
-    hist, binEdges = np.histogram(channel, bins=20)
-    print ("histogram", hist)
-    print ("Bin Edges", binEdges)
-
-    # channelMin = int (channel.min())
-    # channelMax = int (channel.max())
-    
-    channelMin = binEdges[1]
-    channelMax = binEdges[-5]
+    # compute the clips
+    minimumBinIndex = 0 
+    maximumBinIndex = 0
+    if clip > 0:
+        channelMin, channelMax = findMinMaxClipValues(channel, clip)
     
     if channelMin > 0:
         zs_LL = channelMin
@@ -292,13 +306,13 @@ def samplesToGrayImage(samples, invert):
 # zg_UL = upper limit of grey scale
 # zs_LL = lower limit of samples range
 # zs_UL = upper limit of sample range
-def samplesToGrayImageLogarithmic(samples, invert):
+def samplesToGrayImageLogarithmic(samples, invert, clip):
     zg_LL = 0 # min and max grey scales
     zg_UL = 255
     
     #create numpy arrays so we can compute stats
     channel = np.array(samples)   
-    
+        
     channelMin = channel.min()
     channelMax = channel.max()
     
