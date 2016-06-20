@@ -37,6 +37,9 @@ from glob import glob
 import time
 import numpy as np
 from PIL import Image
+from pylab import imshow, show, get_cmap
+import matplotlib
+import pandas as pd
 
 def main():
 
@@ -45,7 +48,7 @@ def main():
     parser.add_argument('-c', action='store_true', default=False, dest='createBC', help='-c : compute a new Beam Correction file based on contents of XTF file[s]')
     parser.add_argument('-i', dest='inputFile', action='store', help='-i <XTFfilename> input XTF filename to analyse')
     parser.add_argument('-color', dest='color', default = 'graylog', action='store', help='-color : specify the color palette.  Default is GrayLog for a grayscale logarithmic palette. Options are : -color yellow_brown_log, -color gray, -color yellow_brown or any of the palette filenames in the script folder')
-    parser.add_argument('-clip', dest='clip', default = '0', action='store', help='-clip : clip the minimum and maximum edges of the data by this percentage so the color stretch better represents teh data.  Default - 0.  A good value is -clip 5.')
+    parser.add_argument('-clip', dest='clip', default = 0, action='store', help='-clip : clip the minimum and maximum edges of the data by this percentage so the color stretch better represents teh data.  Default - 0.  A good value is -clip 5.')
     parser.add_argument('-invert', dest='invert', default = False, action='store_true', help='-invert : inverts the color palette')
     parser.add_argument('-o', dest='outputFile', action='store', help='-o <filename> : output Beam Correction filename.  [default = BC.csv]')
     parser.add_argument('-odix', dest='outputFolder', action='store', help='-odix <folder> output folder to store Beam Correction file.  If not specified, the files will be alongside the input XTF file')
@@ -56,11 +59,12 @@ def main():
         sys.exit(1)
     
     args = parser.parse_args()
-   
+
+    print ("processing with settings: ", args)
+    
     if args.outputFolder == None:
         firstFile = glob(args.inputFile)[0]
         args.outputFolder = os.path.abspath(os.path.join(firstFile, os.pardir))
-
 
     leftSide = [] #storage for the left transducer beam correction
     rightSide = [] #storage for the right transducer beam correction
@@ -70,8 +74,8 @@ def main():
     maxAltitude = 0
     segmentInterval = 5 #the altitude segmentaiton interval
     
-    print ("files to Process:", glob(args.inputFile))
-    print ("iterating through all input files to compute the maximm size of the beam correction table.  This takes into account changes in range")
+    print ("Files to Process:", glob(args.inputFile))
+    print ("Iterating through all input files to compute the maximum size of the beam correction table.  This takes into account changes in range")
     if args.createBC:       
         for filename in glob(args.inputFile):
             samplesPort, samplesStbd, minAltitude, maxAltitude, pingCount = getSampleRange(filename)
@@ -89,9 +93,9 @@ def main():
         if args.createBC:       
             samplesPortSum, samplesPortCount, samplesStbdSum, samplesStbdCount = computeBC(filename, samplesPortSum, samplesPortCount, samplesStbdSum, samplesStbdCount, segmentInterval)
         if args.createWaterfall:       
-            createWaterfall(filename, args.invert, args.color, args.clip)
+            createWaterfall(filename, args.invert, args.color, float(args.clip))
         else:
-            print ("option not yet implemented!.  Try '-n' to compute nadir gaps")
+            print ("Option not yet implemented!.  Try '-n' to compute nadir gaps")
             exit (0)
 
     if args.createBC:       
@@ -109,11 +113,11 @@ def main():
         BCPortFile = os.path.join(args.outputFolder, baseName + "_port.csv")
         BCStbdFile = os.path.join(args.outputFolder, baseName + "_stbd.csv")
 
-        print("saving Port CSV file:", BCPortFile)
+        print("Saving Port CSV file:", BCPortFile)
         samplesPortAVG = np.divide(samplesPortSum, samplesPortCount)
         np.savetxt(BCPortFile, samplesPortAVG, delimiter=',')
 
-        print("saving Stbd CSV file:", BCStbdFile)
+        print("Saving Stbd CSV file:", BCStbdFile)
         samplesStbdAVG = np.divide(samplesStbdSum, samplesStbdCount)
         np.savetxt(BCStbdFile, samplesStbdAVG, delimiter=',')
 
@@ -157,7 +161,7 @@ def getSampleRange(filename):
     meanSpeed, navigation = r.computeSpeedFromPositions(navigation)
     meanSpeed = 1
     
-    print ("computing range for file:", filename)
+    print ("Computing range for file:", filename)
     while r.moreData():
         pingHdr = r.readPing()
         maxSamplesPort = max(pingHdr.pingChannel[0].NumSamples, maxSamplesPort)
@@ -228,8 +232,8 @@ def createWaterfall(filename, invert, colorScale, clip):
         stbdImage = samplesToGrayImage(sc, invert, clip)
     else:
         print ("Converting to Image with default gray log scale...")
-        portImage = samplesToGrayImageLogarithmic(pc, invert)
-        stbdImage = samplesToGrayImageLogarithmic(sc, invert)
+        portImage = samplesToColorImage(pc, invert, clip, colorScale)
+        stbdImage = samplesToColorImage(sc, invert, clip, colorScale)
         
         
     #merge the images into a single image and save to disc
@@ -242,11 +246,10 @@ def createWaterfall(filename, invert, colorScale, clip):
 
 def findMinMaxClipValues(channel, clip):
     
+    print ("Clipping data with an upper and lower percentage of:", clip)
     # compute a histogram of teh data so we can auto clip the outliers
     bins = np.arange(np.floor(channel.min()),np.ceil(channel.max()))
     values, base = np.histogram(channel, bins=bins, density=1)    
-    # print ("histogram", values)
-    # print ("Bin Edges", base)
 
     # instead of spreading across the entire data range, we can clip the outer n percent by using the cumsum.
     # from the cumsum of histogram density, we can figure out what cut off sample amplitude removes n % of data
@@ -265,24 +268,19 @@ def findMinMaxClipValues(channel, clip):
 def samplesToGrayImage(samples, invert, clip):
     zg_LL = 5 # min and max grey scales
     zg_UL = 250
+    zs_LL = 0 
+    zs_UL = 0
+    conv_01_99 = 1
     
     #create numpy arrays so we can compute stats
-    channel = np.array(samples, clipPercent)   
+    channel = np.array(samples)   
 
     # compute the clips
-    minimumBinIndex = 0 
-    maximumBinIndex = 0
     if clip > 0:
-        channelMin, channelMax = findMinMaxClipValues(channel, clip)
-    
-    if channelMin > 0:
-        zs_LL = channelMin
+        zs_LL, zs_UL = findMinMaxClipValues(channel, clip)
     else:
-        zs_LL = 0
-    if channelMax > 0:
-        zs_UL = channelMax
-    else:
-        zs_UL = 0
+        zs_LL = channel.min()
+        zs_UL = channel.max()
     
     # this scales from the range of image values to the range of output grey levels
     if (zs_UL - zs_LL) is not 0:
@@ -298,9 +296,53 @@ def samplesToGrayImage(samples, invert, clip):
     else:
         channel = np.add(zg_LL, channel)
     image = Image.fromarray(channel).convert('L')
+    return image
+
+def samplesToColorImage(samples, invert, clip, palette):
+    zg_LL = 5 # min and max grey scales
+    zg_UL = 250
+    zs_LL = 0 
+    zs_UL = 0
+    conv_01_99 = 1
+    
+    #create numpy arrays so we can compute stats
+    channel = np.array(samples)   
+
+    # compute the clips
+    if clip > 0:
+        zs_LL, zs_UL = findMinMaxClipValues(channel, clip)
+    else:
+        zs_LL = channel.min()
+        zs_UL = channel.max()
+    
+    # this scales from the range of image values to the range of output grey levels
+    if (zs_UL - zs_LL) is not 0:
+        conv_01_99 = ( zg_UL - zg_LL ) / ( zs_UL - zs_LL )
+   
+    #we can expect some divide by zero errors, so suppress 
+    np.seterr(divide='ignore')
+    # channel = np.log(samples)
+    channel = np.subtract(channel, zs_LL)
+    channel = np.multiply(channel, conv_01_99)
+    if invert:
+        channel = np.subtract(zg_UL, channel)
+    else:
+        channel = np.add(zg_LL, channel)
+
+    cmap = loadColormap(palette)
+    image = Image.fromarray(np.uint8(cmap(channel)*255))
     
     return image
 
+def loadColormap(palette):
+    """ load a Edgetech color map into a matplotlib colormap so  it can be applied to the entire image    """
+    df = pd.read_csv(palette)
+    
+    # saved_column = df.column_name #you can also use df['column_name']
+
+    cmap = mpl.colors.ListedColormap(['r', 'g', 'b', 'c'])
+    
+    return cmap
 ###################################
 # zg_LL = lower limit of grey scale
 # zg_UL = upper limit of grey scale
@@ -309,12 +351,20 @@ def samplesToGrayImage(samples, invert, clip):
 def samplesToGrayImageLogarithmic(samples, invert, clip):
     zg_LL = 0 # min and max grey scales
     zg_UL = 255
-    
+    zs_LL = 0 
+    zs_UL = 0
+    conv_01_99 = 1
+    # channelMin = 0
+    # channelMax = 0
     #create numpy arrays so we can compute stats
     channel = np.array(samples)   
-        
-    channelMin = channel.min()
-    channelMax = channel.max()
+
+    # compute the clips
+    if clip > 0:
+        channelMin, channelMax = findMinMaxClipValues(channel, clip)
+    else:
+        channelMin = channel.min()
+        channelMax = channel.max()
     
     if channelMin > 0:
         zs_LL = math.log(channelMin)
