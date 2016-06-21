@@ -45,15 +45,16 @@ def main():
 
     start_time = time.time() # time the process
     parser = argparse.ArgumentParser(description='Read XTF file and create either a coverage or Nadir gap polygon.')
-    parser.add_argument('-c', action='store_true', default=False, dest='createBC', help='-c : compute a new Beam Correction file based on contents of XTF file[s]. [default = False]')
-    parser.add_argument('-d', action='store', default=4, dest='decimation', help='-d <value> : decimate the samples in the across track direction.  For full resolution, use 1.  Fora a faster process, use 10. [Default = 4.]')
+    parser.add_argument('-c', action='store_true', default=False, dest='createBC', help='-c : Compute a new Beam Correction file based on contents of XTF file[s]. [default = False]')
     parser.add_argument('-i', dest='inputFile', action='store', help='-i <XTFfilename> : input XTF filename to analyse')
-    parser.add_argument('-color', dest='color', default = 'graylog', action='store', help='-color <paletteName> : specify the color palette.  Options are : -color yellow_brown_log, -color gray, -color yellow_brown or any of the palette filenames in the script folder. [Default = graylog for a grayscale logarithmic palette.]' )
-    parser.add_argument('-clip', dest='clip', default = 0, action='store', help='-clip <value>: clip the minimum and maximum edges of the data by this percentage so the color stretch better represents the data.  [Default - 0.  A good value is -clip 5.]')
-    parser.add_argument('-invert', dest='invert', default = False, action='store_true', help='-invert : inverts the color palette')
-    parser.add_argument('-o', dest='outputFile', action='store', help='-o <filename> : output Beam Correction filename.  [default = BC.csv]')
-    parser.add_argument('-odix', dest='outputFolder', action='store', help='-odix <folder> output folder to store Beam Correction file.  If not specified, the files will be alongside the input XTF file')
-    parser.add_argument('-w', dest='createWaterfall', default = False, action='store_true', help='-w : create a waterfall image from the XTF file')
+    parser.add_argument('-color', dest='color', default = 'graylog', action='store', help='-color <paletteName> : Specify the color palette.  Options are : -color yellow_brown_log, -color gray, -color yellow_brown or any of the palette filenames in the script folder. [Default = graylog for a grayscale logarithmic palette.]' )
+    parser.add_argument('-clip', dest='clip', default = 0, action='store', help='-clip <value> : Clip the minimum and maximum edges of the data by this percentage so the color stretch better represents the data.  [Default - 0.  A good value is -clip 5.]')
+    parser.add_argument('-invert', dest='invert', default = False, action='store_true', help='-invert : Inverts the color palette')
+    parser.add_argument('-o', dest='outputFile', action='store', help='-o <filename> : Output Beam Correction filename.  [default = BC.csv]')
+    parser.add_argument('-odix', dest='outputFolder', action='store', help='-odix <folder> : Output folder to store Beam Correction file.  If not specified, the files will be alongside the input XTF file')
+    parser.add_argument('-w', dest='createWaterfall', default = False, action='store_true', help='-w : Create a waterfall image from the XTF file')
+    parser.add_argument('-x', action='store', default=4, dest='decimation', help='-x <value> : Decimate the samples in the across track direction.  For full resolution, use 1.  For a faster process, use 10. The process will look at the data and inform you what the X axis pixel size represents with this decimation factor. [Default = 4.]')
+    parser.add_argument('-y', action='store', default=-1, dest='stretch', help='-y <value> : Set the alongtrack scale factor. The process will look at the data and inform you what the Y axis pixel size repesents with this y scale. [Default = -1 for auto stretch.]')
     
     if len(sys.argv)==1:
         parser.print_help()
@@ -94,7 +95,7 @@ def main():
         if args.createBC:       
             samplesPortSum, samplesPortCount, samplesStbdSum, samplesStbdCount = computeBC(filename, samplesPortSum, samplesPortCount, samplesStbdSum, samplesStbdCount, segmentInterval)
         if args.createWaterfall:       
-            createWaterfall(filename, args.invert, args.color, float(args.clip), int(args.decimation))
+            createWaterfall(filename, args.invert, args.color, float(args.clip), int(args.decimation), int(args.stretch))
         else:
             print ("Option not yet implemented!.  Try '-n' to compute nadir gaps")
             exit (0)
@@ -182,8 +183,8 @@ def altitudeToSegment(altitude, segmentInterval):
     return segmentnumber
 
 # create a simple waterfall image from the sonar data using standard nunmpy and PIL python pachakages
-def createWaterfall(filename, invert, colorScale, clip, decimation):
-    yStretch = 0
+def createWaterfall(filename, invert, colorScale, clip, decimation, stretch):
+    
     #compute the size of the array we will need to create
     maxSamplesPort, maxSamplesStbd, minAltitude, maxAltitude, maxSlantRange, pingCount, meanSpeed, navigation = getSampleRange(filename)
     
@@ -191,11 +192,11 @@ def createWaterfall(filename, invert, colorScale, clip, decimation):
     
     # to make the image somewhat isometric, we need to compute the alongtrack sample interval.  this is based on the ping times, number of pings and mean speed  where distance = speed * duration
     distance = meanSpeed * (navigation[-1].dateTime.timestamp() - navigation[0].dateTime.timestamp())
-    alongTrackSampleInterval = (distance / pingCount) / 2 # not sure why, but we need to scale this.
+    alongTrackSampleInterval = (distance / pingCount) # not sure why, but we need to scale this.
     
-    yStretch = math.ceil(alongTrackSampleInterval / acrossTrackSampleInterval)
+    stretch = math.ceil(alongTrackSampleInterval / acrossTrackSampleInterval)
     
-    print ("Creating waterfall with pixel resolution acrosstrack %.3f alongtrack %.3f" % (acrossTrackSampleInterval, alongTrackSampleInterval))
+    print ("Creating waterfall with pixel resolution acrosstrack %.3f alongtrack %.3f" % (acrossTrackSampleInterval, alongTrackSampleInterval/stretch))
     
     #   open the XTF file for reading 
     print ("Opening file:", filename)
@@ -217,7 +218,7 @@ def createWaterfall(filename, invert, colorScale, clip, decimation):
         filteredStbdData = channel.tolist()
 
         # we need to stretch in the Y axis so the image looks isometric. 
-        for i in range (yStretch):
+        for i in range (stretch):
             pc.insert(0, filteredPortData)
             sc.insert(0, filteredStbdData)
 
@@ -238,7 +239,7 @@ def createWaterfall(filename, invert, colorScale, clip, decimation):
         stbdImage = samplesToColorImage(sc, invert, clip, colorScale)
         
         
-    #merge the images into a single image and save to disc
+    # merge the images into a single image and save to disc
     print ("Merging Channels to single image...")
     mergedImage = mergeImages(portImage, stbdImage)
     print ("Saving Image...")    
