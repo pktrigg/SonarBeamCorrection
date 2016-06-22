@@ -304,6 +304,7 @@ class XTFReader:
         
     def moreData(self):
         bytesRemaining = self.fileSize - self.fileptr.tell()
+        print (self.fileptr.tell())
         return bytesRemaining
             
     def loadNavigation(self):
@@ -352,7 +353,7 @@ class XTFReader:
         return XTFPINGCHANHEADER(self.fileptr, self.XTFFileHdr)
          
 if __name__ == "__main__":
-    r = XTFReader("C:/development/python/SonarNadirCalculator/01064_m66c448_SSS_20151219_205405_HH_HuginES7_GA4450_P_compressed.xtf")
+    r = XTFReader("C:/development/python/ssh-0065-vsm3_16-20151122-182327_P_Rev2.xtf")
     print (r)
     print (r.XTFFileHdr)
     for ch in range(r.XTFFileHdr.NumberOfSonarChannels):
@@ -360,7 +361,9 @@ if __name__ == "__main__":
 
     while r.moreData():
         pingHdr = r.readPing()
-        print (pingHdr.PingNumber,  pingHdr.SensorXcoordinate, pingHdr.SensorYcoordinate)
-            
+        # print (pingHdr.PingNumber,  pingHdr.SensorXcoordinate, pingHdr.SensorYcoordinate)
+
+    r.rewind()
+    navigation = r.loadNavigation()
     print("Complete reading XTF file :-)")
     

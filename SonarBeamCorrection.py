@@ -159,8 +159,8 @@ def getSampleRange(filename):
     print("Gathering data limits...")
     #   open the XTF file for reading 
     r = pyXTF.XTFReader(filename)
-    navigation = r.loadNavigation()
-    meanSpeed, navigation = r.computeSpeedFromPositions(navigation)
+    # navigation = r.loadNavigation()
+    # meanSpeed, navigation = r.computeSpeedFromPositions(navigation)
     meanSpeed = 1
     
     print ("Computing range for file:", filename)
@@ -192,7 +192,7 @@ def createWaterfall(filename, invert, colorScale, clip, decimation, stretch):
     
     # to make the image somewhat isometric, we need to compute the alongtrack sample interval.  this is based on the ping times, number of pings and mean speed  where distance = speed * duration
     distance = meanSpeed * (navigation[-1].dateTime.timestamp() - navigation[0].dateTime.timestamp())
-    alongTrackSampleInterval = (distance / pingCount) # not sure why, but we need to scale this.
+    alongTrackSampleInterval = (distance / pingCount) 
     
     stretch = math.ceil(alongTrackSampleInterval / acrossTrackSampleInterval)
     
