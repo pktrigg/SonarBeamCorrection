@@ -15,6 +15,19 @@
 
 #DONE
 #initial implementation
+# reading an XTF file follows this path:
+# Open the file for binary read
+# call the XTFFILEHDR class, which reads the header record of 1024 bytes
+# For each channel in the file header, the XTFFILEHDR then calls the XTFCHANINFO class to read the channel header
+# from there, iterate through all the ping records by calling the XTFPINGHEADER class
+# For each channel, XTFCHANINFO calls the XTFPINGCHANHEADER class to read the ping channel header and data
+# In Summary:
+# open the file
+# XTFFILEHDR --> XTFCHANINFO
+# Loop through all record
+#       XTFCHANINFO --> XTFPINGCHANHEADER
+# close the File
+
 
 import pprint
 import struct
@@ -41,10 +54,11 @@ class XTFPINGHEADER:
         
         # start_time = time.time() # time the process
 
-        XTFPingHeader_fmt = '=h2b3hLh6bh2L2fL21f2d2h 4b2f2d4h10flfl4b2hB11b'
+        XTFPingHeader_fmt = '=h2b3hLh6bh2L2fL21f2d2h4b2f2d4h10flfl4b2hBH7b'
         XTFPingHeader_len = struct.calcsize(XTFPingHeader_fmt)
         XTFPingHeader_unpack = struct.Struct(XTFPingHeader_fmt).unpack_from
-
+        print ("XTFPINGHeader Length: ", XTFPINGHEADER)
+        
         data = fileptr.read(XTFPingHeader_len)
         s = XTFPingHeader_unpack(data)
 
@@ -146,7 +160,8 @@ class XTFPINGCHANHEADER:
         XTFPingChanHeader_fmt = '=2h5f5hLh2bLhf2bfh4b'
         XTFPingChanHeader_len = struct.calcsize(XTFPingChanHeader_fmt)
         XTFPingChanHeader_unpack = struct.Struct(XTFPingChanHeader_fmt).unpack_from
-
+        print ("XTFPingChanHeader Length: ", XTFPingChanHeader_len)
+        
         hdr = fileptr.read(XTFPingChanHeader_len)
         s = XTFPingChanHeader_unpack(hdr)
         self.ChannelNumber                    = s[0]
@@ -194,7 +209,8 @@ class XTFPINGCHANHEADER:
         XTFdata_unpack = struct.Struct(XTFdata_fmt).unpack_from
         blob = fileptr.read(XTFdata_len)
         self.data = XTFdata_unpack(blob)
-
+        print ("XTFdata_len: ", XTFdata_len)
+        
         return
         
     def __str__(self):
@@ -205,6 +221,7 @@ class XTFCHANINFO:
         XTFChanInfo_fmt = '=bb3hl16s11fhb53s'
         XTFChanInfo_len = struct.calcsize(XTFChanInfo_fmt)
         XTFChanInfo_unpack = struct.Struct(XTFChanInfo_fmt).unpack_from
+        print ("XTFCHANINFO Length:", XTFChanInfo_len)
 
         data = fileptr.read(XTFChanInfo_len)
         s = XTFChanInfo_unpack(data)
@@ -238,6 +255,7 @@ class XTFFILEHDR:
         XTFFileHdr_fmt = '=bb8s8s16sh64s64s3hbbhbbHf12b10bl12f'
         XTFFileHdr_len = struct.calcsize(XTFFileHdr_fmt)
         XTFFileHdr_unpack = struct.Struct(XTFFileHdr_fmt).unpack_from
+        print ("XTFFILEINFO Length:", XTFFileHdr_len)
 
         data = fileptr.read(XTFFileHdr_len)
         s = XTFFileHdr_unpack(data)
@@ -280,6 +298,8 @@ class XTFFILEHDR:
             ch = XTFCHANINFO(fileptr)
             self.XTFChanInfo.append(ch)
             
+        # there can be more than 6 channels.  If so, we need to read another 1024 bytes here.  As we do not have an example of this, the code is not written
+        
     def __str__(self):
         return (pprint.pformat(vars(self)))
 
@@ -354,7 +374,6 @@ class XTFReader:
          
 if __name__ == "__main__":
     r = XTFReader("C:/development/python/ssh-0065-vsm3_16-20151122-182327_P_Rev2.xtf")
-    print (r)
     print (r.XTFFileHdr)
     for ch in range(r.XTFFileHdr.NumberOfSonarChannels):
         print(r.XTFFileHdr.XTFChanInfo[ch])

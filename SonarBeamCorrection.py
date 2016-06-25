@@ -37,9 +37,9 @@ from glob import glob
 import time
 import numpy as np
 from PIL import Image
-from pylab import imshow, show, get_cmap
-import matplotlib
-import pandas as pd
+# from pylab import imshow, show, get_cmap
+# import matplotlib
+# import pandas as pd
 
 def main():
 
