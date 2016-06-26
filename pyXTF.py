@@ -50,106 +50,111 @@ class XTFNAVIGATIONRECORD:
         self.sensorSpeed = sensorSpeed
            
 class XTFPINGHEADER:
-    def __init__(self, fileptr, XTFFileHdr):
+    def __init__(self, fileptr, XTFFileHdr, SubChannelNumber, NumChansToFollow, NumBytesThisRecord):
         
-        # start_time = time.time() # time the process
+        start_time = time.time() # time the process
 
-        XTFPingHeader_fmt = '=h2b3hLh6bh2L2fL21f2d2h4b2f2d4h10flfl4b2hBH7b'
+        XTFPingHeader_fmt = '=h6bh2L2fL21f2d2h4b2f2d4h10fLfL4b2hBL7b'
         XTFPingHeader_len = struct.calcsize(XTFPingHeader_fmt)
         XTFPingHeader_unpack = struct.Struct(XTFPingHeader_fmt).unpack_from
-        print ("XTFPINGHeader Length: ", XTFPINGHEADER)
+        print ("XTFPINGHeader Length: ", XTFPingHeader_len)
         
         data = fileptr.read(XTFPingHeader_len)
         s = XTFPingHeader_unpack(data)
-
-        self.MagicNumber                    = s[0]
-        self.HeaderType                     = s[1]
-        self.SubChannelNumber               = s[2]
-        self.NumChansToFollow               = s[3]
-        self.Reserved1                      = s[4]
-        self.Reserved2                      = s[5]
-        self.NumBytesThisRecord             = s[6]
-        self.Year                           = s[7]
-        self.Month                          = s[8]
-        self.Day                            = s[9]
-        self.Hour                           = s[10]
-        self.Minute                         = s[11]
-        self.Second                         = s[12]
-        self.HSeconds                       = s[13]
-        self.JulianDays                     = s[14]
-        self.EventNumber                    = s[15]
-        self.PingNumber                     = s[16]
-        self.SoundVelocity                  = s[17]
-        self.OceanTide                      = s[18]
-        self.Reserved2                      = s[19]
-        self.ConductivityFreq               = s[20]
-        self.TemperatureFreq                = s[21]
-        self.PressureFreq                   = s[22]
-        self.PressureTemp                   = s[23]
-        self.Conductivity                   = s[24]
-        self.WaterTemperature               = s[25]
-        self.Pressure                       = s[26]
-        self.ComputedSoundVelocity          = s[27]
-        self.MagX                           = s[28]
-        self.MagY                           = s[29]
-        self.MagZ                           = s[30]
-        self.AuxVal1                        = s[31]
-        self.AuxVal2                        = s[32]
-        self.AuxVal3                        = s[33]
-        self.AuxVal4                        = s[34]
-        self.AuxVal5                        = s[35]
-        self.AuxVal6                        = s[36]
-        self.SpeedLog                       = s[37]
-        self.Turbidity                      = s[38]
-        self.ShipSpeed                      = s[39]
-        self.ShipGyro                       = s[40]
-        self.ShipYcoordinate                = s[41]                        
-        self.ShipXcoordinate                = s[42]
-        self.ShipAltitiude                  = s[43]
-        self.ShipDepth                      = s[44]
-        self.FixTimeHour                    = s[45]
-        self.FixTimeMinute                  = s[46]
-        self.FixTimeSecond                  = s[47]
-        self.FixTimeHsecond                 = s[48]
-        self.SensorSpeed                    = s[49]
-        self.KP                             = s[50]
-        self.SensorYcoordinate              = s[51]
-        self.SensorXcoordinate              = s[52]
-        self.SonarStatus                    = s[53]
-        self.RangeToTowFish                 = s[54]
-        self.BearingToTowFish               = s[55]
-        self.CableOut                       = s[56]
-        self.Layback                        = s[57]
-        self.CableTension                   = s[58]
-        self.SensorDepth                    = s[59]
-        self.SensorPrimaryAltitude          = s[60]
-        self.SensorAuxAltitude              = s[61]
-        self.SensorPitch                    = s[62]
-        self.SensorRoll                     = s[63]
-        self.SensorHeading                  = s[64]
-        self.Heave                          = s[65]
-        self.Yaw                            = s[66]
-        self.AttitudeTimeTag                = s[67]
-        self.DOT                            = s[68]
-        self.NavFixMilliseconds             = s[69]
-        self.ComputerClockHour              = s[70]
-        self.ComputerClockMinute            = s[71]
-        self.ComputerClockSecond            = s[72]
-        self.ComputerClockHSecond           = s[73]
-        self.FishPositionDeltaX             = s[74]
-        self.FishPositionDeltaY             = s[75]
-        self.FishPositionErrorCode          = s[76]
-        self.ReservedSpace2                 = s[77]
+        
+        self.SubChannelNumber = SubChannelNumber #pass the parameter into the correct class
+        self.Year                           = s[0]
+        self.Month                          = s[1]
+        self.Day                            = s[2]
+        self.Hour                           = s[3]
+        self.Minute                         = s[4]
+        self.Second                         = s[5]
+        self.HSeconds                       = s[6]
+        self.JulianDays                     = s[7]
+        self.EventNumber                    = s[8]
+        self.PingNumber                     = s[9]
+        self.SoundVelocity                  = s[10]
+        self.OceanTide                      = s[11]
+        self.Reserved2                      = s[12]
+        self.ConductivityFreq               = s[13]
+        self.TemperatureFreq                = s[14]
+        self.PressureFreq                   = s[15]
+        self.PressureTemp                   = s[16]
+        self.Conductivity                   = s[17]
+        self.WaterTemperature               = s[18]
+        self.Pressure                       = s[19]
+        self.ComputedSoundVelocity          = s[20]
+        self.MagX                           = s[21]
+        self.MagY                           = s[22]
+        self.MagZ                           = s[23]
+        self.AuxVal1                        = s[24]
+        self.AuxVal2                        = s[25]
+        self.AuxVal3                        = s[26]
+        self.AuxVal4                        = s[27]
+        self.AuxVal5                        = s[28]
+        self.AuxVal6                        = s[29]
+        self.SpeedLog                       = s[30]
+        self.Turbidity                      = s[31]
+        self.ShipSpeed                      = s[32]
+        self.ShipGyro                       = s[33]
+        self.ShipYcoordinate                = s[34]                        
+        self.ShipXcoordinate                = s[35]
+        self.ShipAltitiude                  = s[36]
+        self.ShipDepth                      = s[37]
+        self.FixTimeHour                    = s[38]
+        self.FixTimeMinute                  = s[39]
+        self.FixTimeSecond                  = s[40]
+        self.FixTimeHsecond                 = s[41]
+        self.SensorSpeed                    = s[42]
+        self.KP                             = s[43]
+        self.SensorYcoordinate              = s[44]
+        self.SensorXcoordinate              = s[45]
+        self.SonarStatus                    = s[46]
+        self.RangeToTowFish                 = s[47]
+        self.BearingToTowFish               = s[49]
+        self.CableOut                       = s[49]
+        self.Layback                        = s[50]
+        self.CableTension                   = s[51]
+        self.SensorDepth                    = s[52]
+        self.SensorPrimaryAltitude          = s[53]
+        self.SensorAuxAltitude              = s[54]
+        self.SensorPitch                    = s[55]
+        self.SensorRoll                     = s[56]
+        self.SensorHeading                  = s[57]
+        self.Heave                          = s[58]
+        self.Yaw                            = s[59]
+        self.AttitudeTimeTag                = s[60]
+        self.DOT                            = s[61]
+        self.NavFixMilliseconds             = s[62]
+        self.ComputerClockHour              = s[63]
+        self.ComputerClockMinute            = s[64]
+        self.ComputerClockSecond            = s[65]
+        self.ComputerClockHSecond           = s[66]
+        self.FishPositionDeltaX             = s[67]
+        self.FishPositionDeltaY             = s[68]
+        self.FishPositionErrorCode          = s[69]
+        self.OptionalOffset                 = s[70]
+        self.ReservedSpace2_1               = s[71]
+        self.ReservedSpace2_2               = s[72]
+        self.ReservedSpace2_3               = s[73]
+        self.ReservedSpace2_4               = s[74]
+        self.ReservedSpace2_5               = s[75]
+        self.ReservedSpace2_6               = s[76]
 
         # print("--- %s.sss header read duration ---" % (time.time() - start_time)) # print the processing time.
         # start_time = time.time() # time the process
 
         # now read the chaninfo records.  This is more complex than it needs to be, but for now, read six channels
         self.pingChannel =[]
-        for i in range(self.NumChansToFollow):
+        for i in range(NumChansToFollow):
             ping = XTFPINGCHANHEADER(fileptr, XTFFileHdr, i)
             self.pingChannel.append(ping)
 
+        # now read the padbytes at the end of the packet
+        padBytes = (64 - (NumBytesThisRecord % 64)) % 64
+        if padBytes > 0:
+            data = fileptr.read(int(padBytes))
+        
         # print("--- %s.sss sample read duration ---" % (time.time() - start_time)) # print the processing time.
 
     def __str__(self):
@@ -304,6 +309,11 @@ class XTFFILEHDR:
         return (pprint.pformat(vars(self)))
 
 class XTFReader:
+    
+    XTFPacketHeader_fmt = '=h2b3hL'
+    XTFPacketHeader_len = struct.calcsize(XTFPacketHeader_fmt)
+    XTFPacketHeader_unpack = struct.Struct(XTFPacketHeader_fmt).unpack_from
+
     def __init__(self, XTFfileName):
         if not os.path.isfile(XTFfileName):
             print ("file not found:", XTFfileName)
@@ -324,14 +334,14 @@ class XTFReader:
         
     def moreData(self):
         bytesRemaining = self.fileSize - self.fileptr.tell()
-        print (self.fileptr.tell())
+        print ("current file ptr position:", self.fileptr.tell())
         return bytesRemaining
             
     def loadNavigation(self):
         navigation = []
         start_time = time.time() # time the process
         while self.moreData():
-            pingHdr = self.readPing()
+            pingHdr = self.readPacket()
             # we need to calculate the approximate speed, so need the ping interval
             d = datetime (pingHdr.Year, pingHdr.Month, pingHdr.Day, pingHdr.Hour, pingHdr.Minute, pingHdr.Second, pingHdr.HSeconds * 10000)
             r = XTFNAVIGATIONRECORD(d, pingHdr.PingNumber, pingHdr.SensorXcoordinate, pingHdr.SensorYcoordinate, pingHdr.SensorDepth, pingHdr.SensorPrimaryAltitude, pingHdr.SensorHeading, pingHdr.SensorSpeed)
@@ -364,22 +374,51 @@ class XTFReader:
             navData[r].sensorSpeed = float (smoothSpeed[r])
 
         return meanSpeed, navData
+          
+    def readPacketheader(self):
+                
+        data = self.fileptr.read(self.XTFPacketHeader_len)
+        s = self.XTFPacketHeader_unpack(data)
+
+        MagicNumber                    = s[0]
+        HeaderType                     = s[1]
+        SubChannelNumber               = s[2]
+        NumChansToFollow               = s[3]
+        Reserved1                      = s[4]
+        Reserved2                      = s[5]
+        NumBytesThisRecord             = s[6]
+
+        return HeaderType, SubChannelNumber, NumChansToFollow, NumBytesThisRecord
+
+    def readPacket(self):
+        # remember the start position, so we can easily comput the position of the next packet
+        currentPacketPosition = self.fileptr.tell()
+
+        # read the packet header.  This permits us to skip packets we do not support
+        HeaderType, SubChannelNumber, NumChansToFollow, NumBytesThisRecord = self.readPacketheader()
         
-    def readPing(self):
-        ping = XTFPINGHEADER(self.fileptr, self.XTFFileHdr )
+        nextPacket = currentPacketPosition + NumBytesThisRecord
+        
+        if HeaderType == 0:
+            ping = XTFPINGHEADER(self.fileptr, self.XTFFileHdr, SubChannelNumber, NumChansToFollow, NumBytesThisRecord)
+        else:
+            self.fileptr.seek(nextPacket, 0)
         return ping
     
-    def readChannel(self):        
-        return XTFPINGCHANHEADER(self.fileptr, self.XTFFileHdr)
+    # def readChannel(self):        
+    #     return XTFPINGCHANHEADER()
          
 if __name__ == "__main__":
-    r = XTFReader("C:/development/python/ssh-0065-vsm3_16-20151122-182327_P_Rev2.xtf")
+    r = XTFReader("C:/development/python/ssl-0064-vsm3_17-20151122-175354_P_Rev2.xtf")
+    # ssl-0064-vsm3_17-20151122-175354_P_Rev2.xtf
+    # ssh-0065-vsm3_16-20151122-182327_P_Rev2.xtf
+    
     print (r.XTFFileHdr)
     for ch in range(r.XTFFileHdr.NumberOfSonarChannels):
         print(r.XTFFileHdr.XTFChanInfo[ch])
 
     while r.moreData():
-        pingHdr = r.readPing()
+        pingHdr = r.readPacket()
         # print (pingHdr.PingNumber,  pingHdr.SensorXcoordinate, pingHdr.SensorYcoordinate)
 
     r.rewind()
