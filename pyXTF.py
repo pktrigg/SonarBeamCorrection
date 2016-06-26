@@ -6,7 +6,8 @@
 #based on XTF version 26 18/12/2008
 #version 1.00
 
-# XTF BYTE = 1 byte = "b"
+# signed char = 1 byte = "b"
+# unsigned char = 1 byte = "B"
 # XTFWORD = signed int 2 bytes = h
 # XTFWORD = UNsigned int 2 bytes = H (for unipolar data)
 # DWORD = unsigned int 4 bytes = "L"
@@ -27,7 +28,7 @@
 # Loop through all record
 #       XTFCHANINFO --> XTFPINGCHANHEADER
 # close the File
-
+# 
 
 import pprint
 import struct
@@ -36,7 +37,6 @@ from datetime import datetime
 import geodetic
 import numpy as np
 import time
-
 
 class XTFNAVIGATIONRECORD:
     def __init__(self, dateTime, pingNumber, sensorX, sensorY, sensorDepth, sensorAltitude, Sensorheading, sensorSpeed):
@@ -54,10 +54,10 @@ class XTFPINGHEADER:
         
         # start_time = time.time() # time the process
 
-        XTFPingHeader_fmt = '=h2b3hLh6bh2L2fL21f2d2h4b2f2d4h10flfl4b2hBH7b'
+        XTFPingHeader_fmt = '=h2b3hLh6bh2L2fL21f2d2h4b2f2d4h10fLfL4b2hBL7b'
         XTFPingHeader_len = struct.calcsize(XTFPingHeader_fmt)
         XTFPingHeader_unpack = struct.Struct(XTFPingHeader_fmt).unpack_from
-        print ("XTFPINGHeader Length: ", XTFPINGHEADER)
+        print ("XTFPINGHeader Length: ", XTFPingHeader_len)
         
         data = fileptr.read(XTFPingHeader_len)
         s = XTFPingHeader_unpack(data)
@@ -139,7 +139,14 @@ class XTFPINGHEADER:
         self.FishPositionDeltaX             = s[74]
         self.FishPositionDeltaY             = s[75]
         self.FishPositionErrorCode          = s[76]
-        self.ReservedSpace2                 = s[77]
+        self.OptionalOffset                 = s[77]
+        self.CableOutHundredths             = s[78]
+        self.ReservedSpace2_1               = s[79]
+        self.ReservedSpace2_2               = s[80]
+        self.ReservedSpace2_3               = s[81]
+        self.ReservedSpace2_4               = s[82]
+        self.ReservedSpace2_5               = s[83]
+        self.ReservedSpace2_6               = s[84]
 
         # print("--- %s.sss header read duration ---" % (time.time() - start_time)) # print the processing time.
         # start_time = time.time() # time the process
@@ -160,7 +167,7 @@ class XTFPINGCHANHEADER:
         XTFPingChanHeader_fmt = '=2h5f5hLh2bLhf2bfh4b'
         XTFPingChanHeader_len = struct.calcsize(XTFPingChanHeader_fmt)
         XTFPingChanHeader_unpack = struct.Struct(XTFPingChanHeader_fmt).unpack_from
-        print ("XTFPingChanHeader Length: ", XTFPingChanHeader_len)
+        # print ("XTFPingChanHeader Length: ", XTFPingChanHeader_len)
         
         hdr = fileptr.read(XTFPingChanHeader_len)
         s = XTFPingChanHeader_unpack(hdr)
@@ -209,7 +216,7 @@ class XTFPINGCHANHEADER:
         XTFdata_unpack = struct.Struct(XTFdata_fmt).unpack_from
         blob = fileptr.read(XTFdata_len)
         self.data = XTFdata_unpack(blob)
-        print ("XTFdata_len: ", XTFdata_len)
+        # print ("XTFdata_len: ", XTFdata_len)
         
         return
         
@@ -221,6 +228,10 @@ class XTFCHANINFO:
         XTFChanInfo_fmt = '=bb3hl16s11fhb53s'
         XTFChanInfo_len = struct.calcsize(XTFChanInfo_fmt)
         XTFChanInfo_unpack = struct.Struct(XTFChanInfo_fmt).unpack_from
+
+
+
+
         print ("XTFCHANINFO Length:", XTFChanInfo_len)
 
         data = fileptr.read(XTFChanInfo_len)
@@ -373,8 +384,11 @@ class XTFReader:
         return XTFPINGCHANHEADER(self.fileptr, self.XTFFileHdr)
          
 if __name__ == "__main__":
-    r = XTFReader("C:/development/python/ssh-0065-vsm3_16-20151122-182327_P_Rev2.xtf")
-    print (r.XTFFileHdr)
+    # r = XTFReader("C:/development/python/ssh-0065-vsm3_16-20151122-182327_P_Rev2.xtf")
+    r = XTFReader("C:/development/python/ssl-0064-vsm3_17-20151122-175354_P_Rev2.xtf")
+    
+    
+    # print (r.XTFFileHdr)
     for ch in range(r.XTFFileHdr.NumberOfSonarChannels):
         print(r.XTFFileHdr.XTFChanInfo[ch])
 
