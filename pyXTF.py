@@ -15,7 +15,9 @@
 # char = 1 byte = "c"
 
 #DONE
-#initial implementation
+# added support for padbytes
+# now reads by packet rather than record type.  This means it will skip unsupported records 
+# initial implementation
 # reading an XTF file follows this path:
 # Open the file for binary read
 # call the XTFFILEHDR class, which reads the header record of 1024 bytes
@@ -52,15 +54,16 @@ class XTFNAVIGATIONRECORD:
 class XTFPINGHEADER:
     def __init__(self, fileptr, XTFFileHdr, SubChannelNumber, NumChansToFollow, NumBytesThisRecord):
         
-        start_time = time.time() # time the process
-
-        XTFPingHeader_fmt = '=h6bh2L2fL21f2d2h4b2f2d4h10fLfL4b2hBL7b'
-        XTFPingHeader_len = struct.calcsize(XTFPingHeader_fmt)
-        XTFPingHeader_unpack = struct.Struct(XTFPingHeader_fmt).unpack_from
-        print ("XTFPINGHeader Length: ", XTFPingHeader_len)
         
-        data = fileptr.read(XTFPingHeader_len)
-        s = XTFPingHeader_unpack(data)
+        # start_time = time.time() # time the process
+
+        # XTFPingHeader_fmt = '=h6bh2L2fL21f2d2h4b2f2d4h10fLfL4b2hBL7b'
+        # XTFPingHeader_len = struct.calcsize(XTFPingHeader_fmt)
+        # XTFPingHeader_unpack = struct.Struct(XTFPingHeader_fmt).unpack_from
+        # print ("XTFPINGHeader Length: ", XTFPingHeader_len)
+        
+        data = fileptr.read(XTFFileHdr.XTFPingHeader_len)
+        s = XTFFileHdr.XTFPingHeader_unpack(data)
         
         self.SubChannelNumber = SubChannelNumber #pass the parameter into the correct class
         self.Year                           = s[0]
@@ -149,11 +152,6 @@ class XTFPINGHEADER:
         for i in range(NumChansToFollow):
             ping = XTFPINGCHANHEADER(fileptr, XTFFileHdr, i)
             self.pingChannel.append(ping)
-
-        # now read the padbytes at the end of the packet
-        padBytes = (64 - (NumBytesThisRecord % 64)) % 64
-        if padBytes > 0:
-            data = fileptr.read(int(padBytes))
         
         # print("--- %s.sss sample read duration ---" % (time.time() - start_time)) # print the processing time.
 
@@ -226,11 +224,7 @@ class XTFCHANINFO:
         XTFChanInfo_fmt = '=bb3hl16s11fhb53s'
         XTFChanInfo_len = struct.calcsize(XTFChanInfo_fmt)
         XTFChanInfo_unpack = struct.Struct(XTFChanInfo_fmt).unpack_from
-
-
-
-
-        print ("XTFCHANINFO Length:", XTFChanInfo_len)
+        # print ("XTFCHANINFO Length:", XTFChanInfo_len)
 
         data = fileptr.read(XTFChanInfo_len)
         s = XTFChanInfo_unpack(data)
@@ -264,7 +258,12 @@ class XTFFILEHDR:
         XTFFileHdr_fmt = '=bb8s8s16sh64s64s3hbbhbbHf12b10bl12f'
         XTFFileHdr_len = struct.calcsize(XTFFileHdr_fmt)
         XTFFileHdr_unpack = struct.Struct(XTFFileHdr_fmt).unpack_from
-        print ("XTFFILEINFO Length:", XTFFileHdr_len)
+        # print ("XTFFILEINFO Length:", XTFFileHdr_len)
+
+        #hold the formats in the file header class as we do not need to spend time creaitng them for ecery record.  That is too slow.
+        XTFPingHeader_fmt = '=h6bh2L2fL21f2d2h4b2f2d4h10fLfL4b2hBL7b'
+        self.XTFPingHeader_len = struct.calcsize(XTFPingHeader_fmt)
+        self.XTFPingHeader_unpack = struct.Struct(XTFPingHeader_fmt).unpack_from
 
         data = fileptr.read(XTFFileHdr_len)
         s = XTFFileHdr_unpack(data)
@@ -338,7 +337,7 @@ class XTFReader:
         
     def moreData(self):
         bytesRemaining = self.fileSize - self.fileptr.tell()
-        print ("current file ptr position:", self.fileptr.tell())
+        # print ("current file ptr position:", self.fileptr.tell())
         return bytesRemaining
             
     def loadNavigation(self):
@@ -352,7 +351,7 @@ class XTFReader:
             navigation.append(r)
             
         self.rewind()
-        print("--- %s.sss get navigation Range Duration ---" % (time.time() - start_time)) # print the processing time.
+        print("Get navigation Range Duration %.3fs" % (time.time() - start_time)) # print the processing time.
         return (navigation)
     
     def computeSpeedFromPositions(self, navData):
@@ -395,18 +394,23 @@ class XTFReader:
         return HeaderType, SubChannelNumber, NumChansToFollow, NumBytesThisRecord
 
     def readPacket(self):
+        ping = -999
         # remember the start position, so we can easily comput the position of the next packet
         currentPacketPosition = self.fileptr.tell()
 
         # read the packet header.  This permits us to skip packets we do not support
         HeaderType, SubChannelNumber, NumChansToFollow, NumBytesThisRecord = self.readPacketheader()
-        
-        nextPacket = currentPacketPosition + NumBytesThisRecord
-        
         if HeaderType == 0:
             ping = XTFPINGHEADER(self.fileptr, self.XTFFileHdr, SubChannelNumber, NumChansToFollow, NumBytesThisRecord)
+            
+            # now read the padbytes at the end of the packet
+            padBytes = currentPacketPosition + NumBytesThisRecord - self.fileptr.tell()
+            if padBytes > 0:
+                data = self.fileptr.read(padBytes)
         else:
-            self.fileptr.seek(nextPacket, 0)
+            print ("unsupported packet type: %s at byte offset %s" % (HeaderType, currentPacketPosition))
+            self.fileptr.seek(currentPacketPosition + NumBytesThisRecord, 0)
+    
         return ping
     
     # def readChannel(self):        
@@ -417,9 +421,9 @@ if __name__ == "__main__":
     # ssl-0064-vsm3_17-20151122-175354_P_Rev2.xtf
     # ssh-0065-vsm3_16-20151122-182327_P_Rev2.xtf
     
-    print (r.XTFFileHdr)
-    for ch in range(r.XTFFileHdr.NumberOfSonarChannels):
-        print(r.XTFFileHdr.XTFChanInfo[ch])
+    # print (r.XTFFileHdr)
+    # for ch in range(r.XTFFileHdr.NumberOfSonarChannels):
+        # print(r.XTFFileHdr.XTFChanInfo[ch])
 
     while r.moreData():
         pingHdr = r.readPacket()

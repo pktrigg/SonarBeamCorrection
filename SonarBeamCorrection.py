@@ -16,6 +16,9 @@
 
 
 #DONE
+# moved o ver to revised XTFreader which reads packets rather than records and handles padbytes
+# improved user feedbakc
+# performance improvements
 # current performane is 27 econds to process 8000 pings (half an hour of AUV collection.  This is ok
 # added a simple waterfall image creation funciton.  We can use this to confirm the beam correction is valid
 # auto compute the approximate Y scale form the sample rate so the waterfall image is approximately isometric
@@ -153,19 +156,17 @@ def getSampleRange(filename):
     maxAltitude = 0
     pingCount = 0
     pingTimes = []
-    
-    start_time = time.time() # time the process
 
     print("Gathering data limits...")
     #   open the XTF file for reading 
     r = pyXTF.XTFReader(filename)
-    # navigation = r.loadNavigation()
+    navigation = r.loadNavigation()
     # meanSpeed, navigation = r.computeSpeedFromPositions(navigation)
     meanSpeed = 1
+    start_time = time.time() # time the process
     
-    print ("Computing range for file:", filename)
     while r.moreData():
-        pingHdr = r.readPing()
+        pingHdr = r.readPacket()
         maxSamplesPort = max(pingHdr.pingChannel[0].NumSamples, maxSamplesPort)
         maxSamplesStbd = max(pingHdr.pingChannel[1].NumSamples, maxSamplesStbd)
         minAltitude = min(minAltitude, pingHdr.SensorPrimaryAltitude)
@@ -173,7 +174,7 @@ def getSampleRange(filename):
         maxRange = max(maxRange, pingHdr.pingChannel[0].SlantRange)
         pingCount = pingCount + 1
 
-    print("--- %s.sss get Sample Range Duration ---" % (time.time() - start_time)) # print the processing time.
+    print("Get Sample Range Duration %.3fs" % (time.time() - start_time)) # print the processing time.
     return maxSamplesPort, maxSamplesStbd, minAltitude, maxAltitude, maxRange, pingCount, meanSpeed, navigation
 
 # compute the segment from the altitude in a standard manner.  
@@ -206,8 +207,11 @@ def createWaterfall(filename, invert, colorScale, clip, decimation, stretch):
     
     print ("Loading Data...")
     while r.moreData():
-        pingHdr = r.readPing()
-
+        pingHdr = r.readPacket()
+        # this is not a ping so skip it
+        if pingHdr == -999:
+            continue
+            
         #create numpy arrays so we can compute stats
         channel = np.array(pingHdr.pingChannel[0].data[::decimation])
         channel = geodetic.medfilt(channel, 5)
