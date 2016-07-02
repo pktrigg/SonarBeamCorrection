@@ -1,11 +1,12 @@
 #name:          pyXTF
 #created:       May 2016
 #by:            p.kennedy@fugro.com
-#description:   script to read an XTF file
+#description:   python module to read an XTF sonar file
 #notes:         See main at end of script for example how to use this
-#based on XTF version 26 18/12/2008
-#version 1.00
+#based on XTF version 34 21/2/2012
+#version 2.00
 
+# XTF types to python struct types
 # signed char = 1 byte = "b"
 # unsigned char = 1 byte = "B"
 # XTFWORD = signed int 2 bytes = h
@@ -26,9 +27,12 @@
 # For each channel, XTFCHANINFO calls the XTFPINGCHANHEADER class to read the ping channel header and data
 # In Summary:
 # open the file
-# XTFFILEHDR --> XTFCHANINFO
-# Loop through all record
-#       XTFCHANINFO --> XTFPINGCHANHEADER
+# XTFFILEHDR --> XTFCHANINFO 
+# Loop through all packets
+#       XTFCHANINFO --> XTFPINGCHANHEADER --> readchannel data
+#       XTFCHANINFO --> XTFPINGCHANHEADER --> readchannel data
+#       XTFCHANINFO --> XTFPINGCHANHEADER --> readchannel data
+#       ignore unsupported records
 # close the File
 # 
 
@@ -53,15 +57,8 @@ class XTFNAVIGATIONRECORD:
            
 class XTFPINGHEADER:
     def __init__(self, fileptr, XTFFileHdr, SubChannelNumber, NumChansToFollow, NumBytesThisRecord):
-        
-        
         # start_time = time.time() # time the process
 
-        # XTFPingHeader_fmt = '=h6bh2L2fL21f2d2h4b2f2d4h10fLfL4b2hBL7b'
-        # XTFPingHeader_len = struct.calcsize(XTFPingHeader_fmt)
-        # XTFPingHeader_unpack = struct.Struct(XTFPingHeader_fmt).unpack_from
-        # print ("XTFPINGHeader Length: ", XTFPingHeader_len)
-        
         data = fileptr.read(XTFFileHdr.XTFPingHeader_len)
         s = XTFFileHdr.XTFPingHeader_unpack(data)
         
@@ -143,16 +140,14 @@ class XTFPINGHEADER:
         self.ReservedSpace2_4               = s[74]
         self.ReservedSpace2_5               = s[75]
         self.ReservedSpace2_6               = s[76]
-
         # print("--- %s.sss header read duration ---" % (time.time() - start_time)) # print the processing time.
-        # start_time = time.time() # time the process
 
         # now read the chaninfo records.  This is more complex than it needs to be, but for now, read six channels
+        # start_time = time.time() # time the process
         self.pingChannel =[]
         for i in range(NumChansToFollow):
             ping = XTFPINGCHANHEADER(fileptr, XTFFileHdr, i)
             self.pingChannel.append(ping)
-        
         # print("--- %s.sss sample read duration ---" % (time.time() - start_time)) # print the processing time.
 
     def __str__(self):
@@ -160,13 +155,10 @@ class XTFPINGHEADER:
                 
 class XTFPINGCHANHEADER:
     def __init__(self, fileptr, XTFFileHdr, channelIndex):
-        XTFPingChanHeader_fmt = '=2h5f5hLh2bLhf2bfh4b'
-        XTFPingChanHeader_len = struct.calcsize(XTFPingChanHeader_fmt)
-        XTFPingChanHeader_unpack = struct.Struct(XTFPingChanHeader_fmt).unpack_from
         # print ("XTFPingChanHeader Length: ", XTFPingChanHeader_len)
         
-        hdr = fileptr.read(XTFPingChanHeader_len)
-        s = XTFPingChanHeader_unpack(hdr)
+        hdr = fileptr.read(XTFFileHdr.XTFPingChanHeader_len)
+        s = XTFFileHdr.XTFPingChanHeader_unpack(hdr)
         self.ChannelNumber                    = s[0]
         self.DownsampleMethod                 = s[1]
         self.SlantRange                       = s[2]
@@ -200,8 +192,7 @@ class XTFPINGCHANHEADER:
                 XTFdata_fmt = '=' + str(self.NumSamples) + 'b'
             else:
                 XTFdata_fmt = '=' + str(self.NumSamples) + 'h'                
-        else:
-            # we are using unipolar data
+        else: # we are using unipolar data
             if XTFFileHdr.XTFChanInfo[channelIndex].BytesPerSample == 1: #1 byte per sample
                 XTFdata_fmt = '=' + str(self.NumSamples) + 'B'
             else:
@@ -220,14 +211,10 @@ class XTFPINGCHANHEADER:
         return (pprint.pformat(vars(self)))        
         
 class XTFCHANINFO:
-    def __init__(self, fileptr):
-        XTFChanInfo_fmt = '=bb3hl16s11fhb53s'
-        XTFChanInfo_len = struct.calcsize(XTFChanInfo_fmt)
-        XTFChanInfo_unpack = struct.Struct(XTFChanInfo_fmt).unpack_from
-        # print ("XTFCHANINFO Length:", XTFChanInfo_len)
+    def __init__(self, fileptr, XTFFileHdr):
 
-        data = fileptr.read(XTFChanInfo_len)
-        s = XTFChanInfo_unpack(data)
+        data = fileptr.read(XTFFileHdr.XTFChanInfo_len)
+        s = XTFFileHdr.XTFChanInfo_unpack(data)
         self.TypeOfChannel                    = s[0]
         self.SubChannelNumber                 = s[1]
         self.CorrectionFlags                  = s[2]
@@ -264,6 +251,14 @@ class XTFFILEHDR:
         XTFPingHeader_fmt = '=h6bh2L2fL21f2d2h4b2f2d4h10fLfL4b2hBL7b'
         self.XTFPingHeader_len = struct.calcsize(XTFPingHeader_fmt)
         self.XTFPingHeader_unpack = struct.Struct(XTFPingHeader_fmt).unpack_from
+
+        XTFChanInfo_fmt = '=bb3hl16s11fhb53s'
+        self.XTFChanInfo_len = struct.calcsize(XTFChanInfo_fmt)
+        self.XTFChanInfo_unpack = struct.Struct(XTFChanInfo_fmt).unpack_from
+
+        XTFPingChanHeader_fmt = '=2h5f5hLh2bLhf2bfh4b'
+        self.XTFPingChanHeader_len = struct.calcsize(XTFPingChanHeader_fmt)
+        self.XTFPingChanHeader_unpack = struct.Struct(XTFPingChanHeader_fmt).unpack_from
 
         data = fileptr.read(XTFFileHdr_len)
         s = XTFFileHdr_unpack(data)
@@ -303,7 +298,7 @@ class XTFFILEHDR:
         # now read the chaninfo records.  This is more complex than it needs to be, but for now, read six channels
         self.XTFChanInfo =[]
         for i in range(6):
-            ch = XTFCHANINFO(fileptr)
+            ch = XTFCHANINFO(fileptr, self)
             self.XTFChanInfo.append(ch)
             
         # there can be more than 6 channels.  If so, we need to read another 1024 bytes here.  As we do not have an example of this, the code is not written
@@ -312,7 +307,6 @@ class XTFFILEHDR:
         return (pprint.pformat(vars(self)))
 
 class XTFReader:
-    
     XTFPacketHeader_fmt = '=h2b3hL'
     XTFPacketHeader_len = struct.calcsize(XTFPacketHeader_fmt)
     XTFPacketHeader_unpack = struct.Struct(XTFPacketHeader_fmt).unpack_from
@@ -356,16 +350,16 @@ class XTFReader:
     
     def computeSpeedFromPositions(self, navData):
         if (navData[0].sensorX <= 180) & (navData[0].sensorY <= 90): #data is in geographicals
-                for r in range(len(navData) - 1):
-                    rng, bearing12, bearing21 = geodetic.calculateRangeBearingFromGeographicals(navData[r].sensorX, navData[r].sensorY, navData[r+1].sensorX, navData[r+1].sensorY)               
-                    # now we have the range, comput the speed in metres/second. where speed = distance/time
-                    navData[r].sensorSpeed = rng / (navData[r+1].dateTime.timestamp() - navData[r].dateTime.timestamp())             
+            for r in range(len(navData) - 1):
+                rng, bearing12, bearing21 = geodetic.calculateRangeBearingFromGeographicals(navData[r].sensorX, navData[r].sensorY, navData[r+1].sensorX, navData[r+1].sensorY)               
+                # now we have the range, comput the speed in metres/second. where speed = distance/time
+                navData[r].sensorSpeed = rng / (navData[r+1].dateTime.timestamp() - navData[r].dateTime.timestamp())             
         else:
-                for r in range(len(navData) - 1):
-                    rng, bearing12, bearing21 = geodetic.calculateRangeBearingFromGridPosition(navData[r].sensorX, navData[r].sensorY, navData[r+1].sensorX, navData[r+1].sensorY)               
-                    # now we have the range, comput the speed in metres/second. where speed = distance/time
-                    navData[r].sensorSpeed = rng / (navData[r+1].dateTime.timestamp() - navData[r].dateTime.timestamp())             
-                    
+            for r in range(len(navData) - 1):
+                rng, bearing12, bearing21 = geodetic.calculateRangeBearingFromGridPosition(navData[r].sensorX, navData[r].sensorY, navData[r+1].sensorX, navData[r+1].sensorY)               
+                # now we have the range, comput the speed in metres/second. where speed = distance/time
+                navData[r].sensorSpeed = rng / (navData[r+1].dateTime.timestamp() - navData[r].dateTime.timestamp())             
+                
         # now smooth the sensorSpeed
         speeds = [o.sensorSpeed for o in navData]
         npspeeds=np.array(speeds)
@@ -379,7 +373,6 @@ class XTFReader:
         return meanSpeed, navData
           
     def readPacketheader(self):
-                
         data = self.fileptr.read(self.XTFPacketHeader_len)
         s = self.XTFPacketHeader_unpack(data)
 

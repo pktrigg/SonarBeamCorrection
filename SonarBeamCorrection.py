@@ -10,13 +10,13 @@
 # add support for user selection of palette.  Use the edgetech discover palettes files.  default to be greyscale
 # add support for logarithmic color ramp
 # add support for color ramp scaling to the command line (min/max value)
-# add support to enable / disable median filter
 # add support for channel selection, 0,1 or 2,3  default is 0,1
-# add support for stretch and decimation instead of auto computing based on navigation.  We may well not have navigation!
-
 
 #DONE
-# moved o ver to revised XTFreader which reads packets rather than records and handles padbytes
+# add support for stretch and decimation instead of auto computing based on navigation.  We may well not have navigation!
+# -w option now produces a nice png file of the sonar
+# now uses the pyxtf project rather than a local copy
+# moved over to revised XTFreader which reads packets rather than records and handles padbytes
 # improved user feedbakc
 # performance improvements
 # current performane is 27 econds to process 8000 pings (half an hour of AUV collection.  This is ok
@@ -43,15 +43,18 @@ from glob import glob
 import time
 import numpy as np
 from PIL import Image
+from scipy import interpolate
+
 # from pylab import imshow, show, get_cmap
 # import matplotlib
 # import pandas as pd
+import matplotlib.pyplot as plt
 
 def main():
-
     start_time = time.time() # time the process
     parser = argparse.ArgumentParser(description='Read XTF file and create either a coverage or Nadir gap polygon.')
-    parser.add_argument('-c', action='store_true', default=False, dest='createBC', help='-c : Compute a new Beam Correction file based on contents of XTF file[s]. [default = False]')
+    parser.add_argument('-a', action='store_true', default=False, dest='applyBC', help='-a : The Beam Correction file to apply when processing the XTF file[s]. Use the -c option to create the BCFile [default = False]')
+    parser.add_argument('-c', action='store_true', default=False, dest='createBC', help='-c : Compute a new Beam Correction file based on contents of XTF file[s]. File create will be called beamcorreciton_port and beamcorrection_stbd.csv')
     parser.add_argument('-i', dest='inputFile', action='store', help='-i <XTFfilename> : input XTF filename to analyse')
     parser.add_argument('-color', dest='color', default = 'graylog', action='store', help='-color <paletteName> : Specify the color palette.  Options are : -color yellow_brown_log, -color gray, -color yellow_brown or any of the palette filenames in the script folder. [Default = graylog for a grayscale logarithmic palette.]' )
     parser.add_argument('-clip', dest='clip', default = 0, action='store', help='-clip <value> : Clip the minimum and maximum edges of the data by this percentage so the color stretch better represents the data.  [Default - 0.  A good value is -clip 5.]')
@@ -80,13 +83,13 @@ def main():
     maxSamplesStbd = 0
     minAltitude = 99999
     maxAltitude = 0
-    segmentInterval = 5 #the altitude segmentaiton interval
+    segmentInterval = 100 #the altitude segmentaiton interval
     
     print ("Files to Process:", glob(args.inputFile))
     print ("Iterating through all input files to compute the maximum size of the beam correction table.  This takes into account changes in range")
     if args.createBC:       
         for filename in glob(args.inputFile):
-            samplesPort, samplesStbd, minAltitude, maxAltitude, pingCount = getSampleRange(filename)
+            samplesPort, samplesStbd, minAltitude, maxAltitude, maxRange, pingCount, meanSpeed, navigation = getSampleRange(filename, False)
             maxSamplesPort = max(maxSamplesPort, samplesPort)
             maxSamplesStbd = max(maxSamplesStbd, samplesStbd)
         print ("maxSamplesPort %s maxSamplesStbd %s minAltitude %s maxAltitude %s" % (maxSamplesPort, maxSamplesStbd, minAltitude, maxAltitude))
@@ -97,32 +100,41 @@ def main():
         samplesStbdSum = np.zeros((numSegments, maxSamplesStbd), dtype=np.int32  )
         samplesStbdCount = np.zeros((numSegments, maxSamplesStbd), dtype=np.int  )
 
+    BCPortFile = ""
+    BCStbdFile = ""
+    if args.applyBC:
+        folder = os.path.dirname(glob(args.inputFile)[0])
+        baseName = "beamcorrection"
+        BCPortFile = os.path.join(folder, baseName + "_port.csv")
+        BCStbdFile = os.path.join(folder, baseName + "_stbd.csv")
+
     for filename in glob(args.inputFile):
-        if args.createBC:       
+        if args.createBC:
             samplesPortSum, samplesPortCount, samplesStbdSum, samplesStbdCount = computeBC(filename, samplesPortSum, samplesPortCount, samplesStbdSum, samplesStbdCount, segmentInterval)
         if args.createWaterfall:       
-            createWaterfall(filename, args.invert, args.color, float(args.clip), int(args.decimation), int(args.stretch))
-        else:
-            print ("Option not yet implemented!.  Try '-n' to compute nadir gaps")
-            exit (0)
+            createWaterfall(filename, args.invert, args.color, float(args.clip), int(args.decimation), int(args.stretch), int(args.applyBC), BCPortFile, BCStbdFile, segmentInterval)
 
     if args.createBC:       
         # now save the results to a csv file
         if args.outputFile is None:
             baseName = os.path.basename(os.path.splitext(glob(args.inputFile)[0])[0])
             if args.outputFolder is None:
-                args.outputFolder = os.path.curdir(glob(args.inputFile)[0])
+                args.outputFolder = os.path.dirname(glob(args.inputFile)[0])
         else:
             baseName = os.path.basename(os.path.splitext(glob(args.outputFile)[0]))
             if args.outputFolder is None:
-                args.outputFolder = os.path.curdir(glob(args.outputFile)[0])
+                args.outputFolder = os.path.dirname(glob(args.outputFile)[0])
 
 
+        # BCPortFile = os.path.join(args.outputFolder, baseName + "_port.csv")
+        # BCStbdFile = os.path.join(args.outputFolder, baseName + "_stbd.csv")
+        baseName = "beamcorrection"
         BCPortFile = os.path.join(args.outputFolder, baseName + "_port.csv")
         BCStbdFile = os.path.join(args.outputFolder, baseName + "_stbd.csv")
 
         print("Saving Port CSV file:", BCPortFile)
         samplesPortAVG = np.divide(samplesPortSum, samplesPortCount)
+        samplesPortAVG = np.apply_along_axis(geodetic.medfilt, 1, samplesPortAVG, 9)
         np.savetxt(BCPortFile, samplesPortAVG, delimiter=',')
 
         print("Saving Stbd CSV file:", BCStbdFile)
@@ -151,7 +163,7 @@ def mergeImages(image1, image2):
     result.paste(im=image2, box=(width1, 0))
     return result
 
-def getSampleRange(filename):
+def getSampleRange(filename, loadNavigation):
     maxSamplesPort = 0
     maxSamplesStbd = 0
     minAltitude = 99999
@@ -159,22 +171,24 @@ def getSampleRange(filename):
     maxAltitude = 0
     pingCount = 0
     pingTimes = []
-
+    navigation = 0
+    
     print("Gathering data limits...")
     #   open the XTF file for reading 
     r = pyXTF.XTFReader(filename)
-    navigation = r.loadNavigation()
+    if loadNavigation:
+        navigation = r.loadNavigation()
     # meanSpeed, navigation = r.computeSpeedFromPositions(navigation)
     meanSpeed = 1
     start_time = time.time() # time the process
     
     while r.moreData():
-        pingHdr = r.readPacket()
-        maxSamplesPort = max(pingHdr.pingChannel[0].NumSamples, maxSamplesPort)
-        maxSamplesStbd = max(pingHdr.pingChannel[1].NumSamples, maxSamplesStbd)
-        minAltitude = min(minAltitude, pingHdr.SensorPrimaryAltitude)
-        maxAltitude = max(maxAltitude, pingHdr.SensorPrimaryAltitude)
-        maxRange = max(maxRange, pingHdr.pingChannel[0].SlantRange)
+        ping = r.readPacket()
+        maxSamplesPort = max(ping.pingChannel[0].NumSamples, maxSamplesPort)
+        maxSamplesStbd = max(ping.pingChannel[1].NumSamples, maxSamplesStbd)
+        minAltitude = min(minAltitude, ping.SensorPrimaryAltitude)
+        maxAltitude = max(maxAltitude, ping.SensorPrimaryAltitude)
+        maxRange = max(maxRange, ping.pingChannel[0].SlantRange)
         pingCount = pingCount + 1
 
     print("Get Sample Range Duration %.3fs" % (time.time() - start_time)) # print the processing time.
@@ -187,10 +201,25 @@ def altitudeToSegment(altitude, segmentInterval):
     return segmentnumber
 
 # create a simple waterfall image from the sonar data using standard nunmpy and PIL python pachakages
-def createWaterfall(filename, invert, colorScale, clip, decimation, stretch):
+def createWaterfall(filename, invert, colorScale, clip, decimation, stretch, applyBC, BCPortFile, BCStbdFile, segmentInterval):
     
+    if applyBC:
+        if os.path.isfile(BCPortFile):
+            PortBC = np.loadtxt(BCPortFile, delimiter=',')
+            # take every nth sample using the specified decimation factor
+            # PortBC = PortBC[::1,::decimation]
+            PortBC = PortBC[::decimation]
+        else:
+            applyBC = False
+        if os.path.isfile(BCStbdFile):
+            StbdBC = np.loadtxt(BCStbdFile, delimiter=',')
+            # StbdBC = StbdBC[::1,::decimation]
+            StbdBC = StbdBC[::decimation]
+        else:
+            applyBC = False
+            
     #compute the size of the array we will need to create
-    maxSamplesPort, maxSamplesStbd, minAltitude, maxAltitude, maxSlantRange, pingCount, meanSpeed, navigation = getSampleRange(filename)
+    maxSamplesPort, maxSamplesStbd, minAltitude, maxAltitude, maxSlantRange, pingCount, meanSpeed, navigation = getSampleRange(filename, True)
     
     acrossTrackSampleInterval = (maxSlantRange / maxSamplesPort) * decimation # sample interval in metres
     
@@ -210,19 +239,44 @@ def createWaterfall(filename, invert, colorScale, clip, decimation, stretch):
     
     print ("Loading Data...")
     while r.moreData():
-        pingHdr = r.readPacket()
+        ping = r.readPacket()
         # this is not a ping so skip it
-        if pingHdr == -999:
+        if ping == -999:
             continue
-            
-        #create numpy arrays so we can compute stats
-        channel = np.array(pingHdr.pingChannel[0].data[::decimation])
-        channel = geodetic.medfilt(channel, 5)
-        filteredPortData = channel.tolist()
 
-        channel = np.array(pingHdr.pingChannel[1].data[::decimation])
+        #create numpy arrays so we can compute stats
+        # now do the port channel
+        channel = np.array(ping.pingChannel[0].data[::decimation])
+        channel = np.multiply(channel, math.pow(2, -ping.pingChannel[0].Weight))
         channel = geodetic.medfilt(channel, 5)
-        filteredStbdData = channel.tolist()
+        channelCorrected = channel
+        # apply the beam correction here
+        if applyBC:
+            segment = altitudeToSegment(ping.SensorPrimaryAltitude, segmentInterval)
+            # average = np.average(segment)
+            channelCorrected = np.subtract(channel, PortBC[segment])            
+            # channel = np.add(channel, average)            
+        filteredPortData = channelCorrected.tolist()
+
+        # plt.plot(channel, label="Raw Channel")
+        # plt.plot(channelCorrected, label="corrected")
+        plt.plot(PortBC[segment], label="correction")
+        # plt.plot(PortBC[segment-1], label="Beam correction -1")
+        plt.xlabel('sample')
+        plt.ylabel('intensity')
+        plt.grid(True)
+        plt.legend()
+        plt.show()            
+
+        # now do the stbd channel
+        channel = np.array(ping.pingChannel[1].data[::decimation])
+        channel = np.multiply(channel, math.pow(2, -ping.pingChannel[1].Weight))
+        channel = geodetic.medfilt(channel, 5)
+        channelCorrected = channel
+        if applyBC:
+            segment = altitudeToSegment(ping.SensorPrimaryAltitude, segmentInterval)
+            channelCorrected = np.subtract(channel, StbdBC[segment])            
+        filteredStbdData = channelCorrected.tolist()
 
         # we need to stretch in the Y axis so the image looks isometric. 
         for i in range (stretch):
@@ -253,9 +307,7 @@ def createWaterfall(filename, invert, colorScale, clip, decimation, stretch):
     mergedImage.save(os.path.splitext(filename)[0]+'.png')
     print ("Image saved to:", os.path.splitext(filename)[0]+'.png')    
 
-
 def findMinMaxClipValues(channel, clip):
-    
     print ("Clipping data with an upper and lower percentage of:", clip)
     # compute a histogram of teh data so we can auto clip the outliers
     bins = np.arange(np.floor(channel.min()),np.ceil(channel.max()))
@@ -403,26 +455,27 @@ def samplesToGrayImageLogarithmic(samples, invert, clip):
     
     return image
     
-    
-    
 # maxSamples lets us know how wide to make the beam correciton table.  This is computed by a pre-iteration stage
 def computeBC(filename, samplesPortSum, samplesPortCount, samplesStbdSum, samplesStbdCount, segmentInterval):
-
     #   open the XTF file for reading 
     print ("Opening file:", filename)
     r = pyXTF.XTFReader(filename)
     while r.moreData():
-        pingHdr = r.readPing()
-        segment = altitudeToSegment(pingHdr.SensorPrimaryAltitude, segmentInterval)
+        ping = r.readPacket()
+        segment = altitudeToSegment(ping.SensorPrimaryAltitude, segmentInterval)
         
-        samplesPortSum[segment] = np.add(samplesPortSum[segment], pingHdr.pingChannel[0].data)            
+        channel = np.array(ping.pingChannel[0].data)
+        channel = np.multiply(channel, math.pow(2, -ping.pingChannel[0].Weight))
+        samplesPortSum[segment] = np.add(samplesPortSum[segment], channel)            
         samplesPortCount[segment] = np.add(samplesPortCount[segment],1)            
         
-        samplesStbdSum[segment] = np.add(samplesStbdSum[segment], pingHdr.pingChannel[1].data)            
+        channel = np.array(ping.pingChannel[1].data)
+        channel = np.multiply(channel, math.pow(2, -ping.pingChannel[1].Weight))
+        samplesStbdSum[segment] = np.add(samplesStbdSum[segment], channel)            
         samplesStbdCount[segment] = np.add(samplesStbdCount[segment],1)            
 
-        if pingHdr.PingNumber % 1000 == 0:
-            print ("Ping: %f" % (pingHdr.PingNumber))                  
+        if ping.PingNumber % 1000 == 0:
+            print ("Ping: %f" % (ping.PingNumber))                  
     
     print("Complete reading XTF file :-)")
     return (samplesPortSum, samplesPortCount, samplesStbdSum, samplesStbdCount)
