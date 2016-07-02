@@ -134,12 +134,14 @@ def main():
 
         print("Saving Port CSV file:", BCPortFile)
         samplesPortAVG = np.divide(samplesPortSum, samplesPortCount)
+        # apply a smoothing fileter to the data.  There is no value having spikes in the beam correction file!
         samplesPortAVG = np.apply_along_axis(geodetic.medfilt, 1, samplesPortAVG, 9)
-        np.savetxt(BCPortFile, samplesPortAVG, delimiter=',')
+        np.savetxt(BCPortFile, samplesPortAVG, fmt='%.3f', delimiter=',')
 
         print("Saving Stbd CSV file:", BCStbdFile)
         samplesStbdAVG = np.divide(samplesStbdSum, samplesStbdCount)
-        np.savetxt(BCStbdFile, samplesStbdAVG, delimiter=',')
+        samplesStbdAVG = np.apply_along_axis(geodetic.medfilt, 1, samplesStbdAVG, 9)
+        np.savetxt(BCStbdFile, samplesStbdAVG, fmt='%.3f', delimiter=',')
 
     print("--- %s seconds ---" % (time.time() - start_time)) # print the processing time.
 
@@ -238,50 +240,59 @@ def createWaterfall(filename, invert, colorScale, clip, decimation, stretch, app
     sc = []
     
     print ("Loading Data...")
+    
+    # in applying the beam cvorrection, we would naturally end up with the data floating about zero.  
+    # Therefore, we need to lift the data back to mean signal levels.  compute those mean levels here.
+    portLift = np.average(PortBC)
+    stbdLift = np.average(PortBC)
     while r.moreData():
         ping = r.readPacket()
         # this is not a ping so skip it
         if ping == -999:
             continue
 
-        #create numpy arrays so we can compute stats
         # now do the port channel
         channel = np.array(ping.pingChannel[0].data[::decimation])
         channel = np.multiply(channel, math.pow(2, -ping.pingChannel[0].Weight))
-        channel = geodetic.medfilt(channel, 5)
+        rawPortData = channel.tolist()
         channelCorrected = channel
+        channelCorrected = geodetic.medfilt(channelCorrected, 5)
         # apply the beam correction here
         if applyBC:
             segment = altitudeToSegment(ping.SensorPrimaryAltitude, segmentInterval)
-            # average = np.average(segment)
-            channelCorrected = np.subtract(channel, PortBC[segment])            
-            # channel = np.add(channel, average)            
-        filteredPortData = channelCorrected.tolist()
+            correction = PortBC
+            # correction = PortBC[segment]
+            # channelCorrected = np.subtract(channel, correction)
+            channelCorrected = np.divide(channel, correction)
+            channelCorrected = np.add(channel, portLift)            
+            filteredPortData = channelCorrected.tolist()
 
-        # plt.plot(channel, label="Raw Channel")
-        # plt.plot(channelCorrected, label="corrected")
-        plt.plot(PortBC[segment], label="correction")
-        # plt.plot(PortBC[segment-1], label="Beam correction -1")
-        plt.xlabel('sample')
-        plt.ylabel('intensity')
-        plt.grid(True)
-        plt.legend()
-        plt.show()            
+            # plt.plot(channel, label="Raw Channel")
+            # plt.plot(channelCorrected, label="corrected")
+            # plt.plot(correction, label="correction", color='red')
+            # # # plt.plot(PortBC[segment-1], label="Beam correction -1")
+            # plt.xlabel('sample')
+            # plt.ylabel('intensity')
+            # plt.grid(True)
+            # # plt.subplots.ax.set_color_cycle(['red', 'black', 'yellow'])
+            # plt.legend()
+            # plt.show()            
 
         # now do the stbd channel
-        channel = np.array(ping.pingChannel[1].data[::decimation])
-        channel = np.multiply(channel, math.pow(2, -ping.pingChannel[1].Weight))
-        channel = geodetic.medfilt(channel, 5)
-        channelCorrected = channel
-        if applyBC:
-            segment = altitudeToSegment(ping.SensorPrimaryAltitude, segmentInterval)
-            channelCorrected = np.subtract(channel, StbdBC[segment])            
-        filteredStbdData = channelCorrected.tolist()
+        # channel = np.array(ping.pingChannel[1].data[::decimation])
+        # channel = np.multiply(channel, math.pow(2, -ping.pingChannel[1].Weight))
+        # channel = geodetic.medfilt(channel, 5)
+        # channelCorrected = channel
+        # if applyBC:
+        #     segment = altitudeToSegment(ping.SensorPrimaryAltitude, segmentInterval)
+        #     channelCorrected = np.subtract(channel, StbdBC[segment])            
+        # filteredStbdData = channelCorrected.tolist()
 
-        # we need to stretch in the Y axis so the image looks isometric. 
+        # Add the data to the waterfall, stretching along the Y axis as we go so the image is close to isometric 
         for i in range (stretch):
             pc.insert(0, filteredPortData)
-            sc.insert(0, filteredStbdData)
+            sc.insert(0, rawPortData)
+            # sc.insert(0, filteredStbdData)
 
     portImage = []
     stbdImage = []
@@ -473,7 +484,6 @@ def computeBC(filename, samplesPortSum, samplesPortCount, samplesStbdSum, sample
         channel = np.multiply(channel, math.pow(2, -ping.pingChannel[1].Weight))
         samplesStbdSum[segment] = np.add(samplesStbdSum[segment], channel)            
         samplesStbdCount[segment] = np.add(samplesStbdCount[segment],1)            
-
         if ping.PingNumber % 1000 == 0:
             print ("Ping: %f" % (ping.PingNumber))                  
     

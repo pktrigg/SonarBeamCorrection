@@ -6,35 +6,7 @@
 #based on XTF version 34 21/2/2012
 #version 2.00
 
-# XTF types to python struct types
-# signed char = 1 byte = "b"
-# unsigned char = 1 byte = "B"
-# XTFWORD = signed int 2 bytes = h
-# XTFWORD = UNsigned int 2 bytes = H (for unipolar data)
-# DWORD = unsigned int 4 bytes = "L"
-# short = short integer 2 bytes = "h"
-# char = 1 byte = "c"
-
-#DONE
-# added support for padbytes
-# now reads by packet rather than record type.  This means it will skip unsupported records 
-# initial implementation
-# reading an XTF file follows this path:
-# Open the file for binary read
-# call the XTFFILEHDR class, which reads the header record of 1024 bytes
-# For each channel in the file header, the XTFFILEHDR then calls the XTFCHANINFO class to read the channel header
-# from there, iterate through all the ping records by calling the XTFPINGHEADER class
-# For each channel, XTFCHANINFO calls the XTFPINGCHANHEADER class to read the ping channel header and data
-# In Summary:
-# open the file
-# XTFFILEHDR --> XTFCHANINFO 
-# Loop through all packets
-#       XTFCHANINFO --> XTFPINGCHANHEADER --> readchannel data
-#       XTFCHANINFO --> XTFPINGCHANHEADER --> readchannel data
-#       XTFCHANINFO --> XTFPINGCHANHEADER --> readchannel data
-#       ignore unsupported records
-# close the File
-# 
+# See readme.md for details
 
 import pprint
 import struct
@@ -45,14 +17,14 @@ import numpy as np
 import time
 
 class XTFNAVIGATIONRECORD:
-    def __init__(self, dateTime, pingNumber, sensorX, sensorY, sensorDepth, sensorAltitude, Sensorheading, sensorSpeed):
+    def __init__(self, dateTime, pingNumber, sensorX, sensorY, sensorDepth, sensorAltitude, SensorHeading, sensorSpeed):
         self.dateTime = dateTime
         self.pingNumber = pingNumber
         self.sensorX = sensorX
         self.sensorY = sensorY
         self.sensorDepth = sensorDepth
         self.sensorAltitude = sensorAltitude
-        self.sensorheading = Sensorheading
+        self.sensorHeading = SensorHeading
         self.sensorSpeed = sensorSpeed
            
 class XTFPINGHEADER:
@@ -324,6 +296,9 @@ class XTFReader:
     def __str__(self):
         return pprint.pformat(vars(self))
 
+    def close(self):
+        self.fileptr.close()
+        
     def rewind(self):
         # go back to start of file
         self.fileptr.seek(0, 0)                
@@ -410,13 +385,13 @@ class XTFReader:
     #     return XTFPINGCHANHEADER()
          
 if __name__ == "__main__":
+    #open the XTF file for reading by creating a new XTFReader class and passin in the filename to open.  The reader will read the initial header so we can get to grips with the file contents with ease.  
     r = XTFReader("C:/development/python/ssl-0064-vsm3_17-20151122-175354_P_Rev2.xtf")
-    # ssl-0064-vsm3_17-20151122-175354_P_Rev2.xtf
-    # ssh-0065-vsm3_16-20151122-182327_P_Rev2.xtf
+    # r = XTFReader("C:/development/python/ssh-0065-vsm3_16-20151122-182327_P_Rev2.xtf")
     
-    # print (r.XTFFileHdr)
-    # for ch in range(r.XTFFileHdr.NumberOfSonarChannels):
-        # print(r.XTFFileHdr.XTFChanInfo[ch])
+    # print the XTF file header information.  This gives a brief summary of the file contents.
+    for ch in range(r.XTFFileHdr.NumberOfSonarChannels):
+        print(r.XTFFileHdr.XTFChanInfo[ch])
 
     while r.moreData():
         pingHdr = r.readPacket()
@@ -424,5 +399,7 @@ if __name__ == "__main__":
 
     r.rewind()
     navigation = r.loadNavigation()
+    for n in navigation:
+        print ("X: %.3f Y: %.3f Hdg: %.3f Alt: %.3f Depth: %.3f" % (n.sensorX, n.sensorY, n.sensorHeading, n.sensorAltitude, n.sensorDepth))
     print("Complete reading XTF file :-)")
-    
+    r.close()    
