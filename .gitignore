@@ -35,6 +35,7 @@ local.properties
 ## Python
 #############
 
+
 *.pyc
 # Packages
 *.egg
@@ -46,8 +47,8 @@ parts/
 var/
 sdist/
 develop-eggs/
+__pycache__/*
 .installed.cfg
-__pycache__/
 
 # Installer logs
 pip-log.txt

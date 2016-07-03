@@ -15,6 +15,7 @@ from datetime import datetime
 import geodetic
 import numpy as np
 import time
+from collections import namedtuple
 
 class XTFNAVIGATIONRECORD:
     def __init__(self, dateTime, pingNumber, sensorX, sensorY, sensorDepth, sensorAltitude, SensorHeading, sensorSpeed):
@@ -124,13 +125,20 @@ class XTFPINGHEADER:
 
     def __str__(self):
         return (pprint.pformat(vars(self)))        
-                
+
+# use named tuples instead of list to peperties 
+
+
 class XTFPINGCHANHEADER:
     def __init__(self, fileptr, XTFFileHdr, channelIndex):
         # print ("XTFPingChanHeader Length: ", XTFPingChanHeader_len)
         
         hdr = fileptr.read(XTFFileHdr.XTFPingChanHeader_len)
+        # pingChannelHeader = namedtuple('pingChannelHeader', 'ChannelNumber, DownsampleMethod, SlantRange,  GroundRange, TimeDelay, TimeDuration, SecondsPerPing, ProcessingFlags, Frequency, InitialGainCode, GainCode, BandWidth, ContactNumber, ContactClassification, ContactSubNumber, ContactType, NumSamples, MillivoltScale, ContactTimeOffTrack, ContactCloseNumber, Reserved2, FixedVSOP, Weight, ReservedSpace1, ReservedSpace2, ReservedSpace3, ReservedSpace4')
+        
         s = XTFFileHdr.XTFPingChanHeader_unpack(hdr)
+        # pingChannelHeader._make(s)
+        
         self.ChannelNumber                    = s[0]
         self.DownsampleMethod                 = s[1]
         self.SlantRange                       = s[2]

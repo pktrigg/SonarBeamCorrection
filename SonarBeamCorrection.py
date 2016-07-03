@@ -83,7 +83,7 @@ def main():
     maxSamplesStbd = 0
     minAltitude = 99999
     maxAltitude = 0
-    segmentInterval = 100 #the altitude segmentaiton interval
+    segmentInterval = 1 #the altitude segmentaiton interval
     
     print ("Files to Process:", glob(args.inputFile))
     print ("Iterating through all input files to compute the maximum size of the beam correction table.  This takes into account changes in range")
@@ -95,10 +95,15 @@ def main():
         print ("maxSamplesPort %s maxSamplesStbd %s minAltitude %s maxAltitude %s" % (maxSamplesPort, maxSamplesStbd, minAltitude, maxAltitude))
         
         numSegments = int(maxAltitude / segmentInterval) + 1 # need to add extra for zero index
-        samplesPortSum = np.zeros((numSegments, maxSamplesPort), dtype=np.int32  )
-        samplesPortCount = np.zeros((numSegments,maxSamplesPort), dtype=np.int  )
-        samplesStbdSum = np.zeros((numSegments, maxSamplesStbd), dtype=np.int32  )
-        samplesStbdCount = np.zeros((numSegments, maxSamplesStbd), dtype=np.int  )
+        samplesPortSum = np.zeros((numSegments, 90), dtype=np.int32  )
+        samplesPortCount = np.zeros((numSegments,90), dtype=np.int  )
+        samplesStbdSum = np.zeros((numSegments, 90), dtype=np.int32  )
+        samplesStbdCount = np.zeros((numSegments, 90), dtype=np.int  )
+
+        # samplesPortSum = np.zeros((numSegments, maxSamplesPort), dtype=np.int32  )
+        # samplesPortCount = np.zeros((numSegments,maxSamplesPort), dtype=np.int  )
+        # samplesStbdSum = np.zeros((numSegments, maxSamplesStbd), dtype=np.int32  )
+        # samplesStbdCount = np.zeros((numSegments, maxSamplesStbd), dtype=np.int  )
 
     BCPortFile = ""
     BCStbdFile = ""
@@ -125,7 +130,6 @@ def main():
             if args.outputFolder is None:
                 args.outputFolder = os.path.dirname(glob(args.outputFile)[0])
 
-
         # BCPortFile = os.path.join(args.outputFolder, baseName + "_port.csv")
         # BCStbdFile = os.path.join(args.outputFolder, baseName + "_stbd.csv")
         baseName = "beamcorrection"
@@ -135,15 +139,15 @@ def main():
         print("Saving Port CSV file:", BCPortFile)
         samplesPortAVG = np.divide(samplesPortSum, samplesPortCount)
         # apply a smoothing fileter to the data.  There is no value having spikes in the beam correction file!
-        samplesPortAVG = np.apply_along_axis(geodetic.medfilt, 1, samplesPortAVG, 9)
+        # samplesPortAVG = np.apply_along_axis(geodetic.medfilt, 1, samplesPortAVG, 9)
         np.savetxt(BCPortFile, samplesPortAVG, fmt='%.3f', delimiter=',')
 
         print("Saving Stbd CSV file:", BCStbdFile)
         samplesStbdAVG = np.divide(samplesStbdSum, samplesStbdCount)
-        samplesStbdAVG = np.apply_along_axis(geodetic.medfilt, 1, samplesStbdAVG, 9)
+        # samplesStbdAVG = np.apply_along_axis(geodetic.medfilt, 1, samplesStbdAVG, 9)
         np.savetxt(BCStbdFile, samplesStbdAVG, fmt='%.3f', delimiter=',')
 
-    print("--- %s seconds ---" % (time.time() - start_time)) # print the processing time.
+    print("Process complete. Duration: %.2f s" % (time.time() - start_time)) # print the processing time.
 
     return (0)
 
@@ -201,7 +205,8 @@ def altitudeToSegment(altitude, segmentInterval):
     segmentnumber = int( altitude / segmentInterval)
     # segmentnumber = round(altitude - segmentInterval/2,-1) / segmentInterval
     return segmentnumber
-
+    
+##############################################################################################################################
 # create a simple waterfall image from the sonar data using standard nunmpy and PIL python pachakages
 def createWaterfall(filename, invert, colorScale, clip, decimation, stretch, applyBC, BCPortFile, BCStbdFile, segmentInterval):
     
@@ -210,13 +215,13 @@ def createWaterfall(filename, invert, colorScale, clip, decimation, stretch, app
             PortBC = np.loadtxt(BCPortFile, delimiter=',')
             # take every nth sample using the specified decimation factor
             # PortBC = PortBC[::1,::decimation]
-            PortBC = PortBC[::decimation]
+            # PortBC = PortBC[::decimation]
         else:
             applyBC = False
         if os.path.isfile(BCStbdFile):
             StbdBC = np.loadtxt(BCStbdFile, delimiter=',')
             # StbdBC = StbdBC[::1,::decimation]
-            StbdBC = StbdBC[::decimation]
+            # StbdBC = StbdBC[::decimation]
         else:
             applyBC = False
             
@@ -245,12 +250,43 @@ def createWaterfall(filename, invert, colorScale, clip, decimation, stretch, app
     # Therefore, we need to lift the data back to mean signal levels.  compute those mean levels here.
     portLift = np.average(PortBC)
     stbdLift = np.average(PortBC)
+    previousRange = 0
     while r.moreData():
         ping = r.readPacket()
         # this is not a ping so skip it
         if ping == -999:
             continue
-
+        
+        # Using the angular correction file, calculate a per pixel beam correction for this range / numsamples.  We can reuse this until the range or numsamples changes. This is far more efficient than computing a take off angle for every sample in every ping
+        if applyBC:
+            PortARC = []
+            i = 0
+            if previousRange != ping.pingChannel[0].SlantRange:
+                for ARC in PortBC:
+                    if not math.isnan(max(ARC)):
+                        plt.plot(np.array(ARC), label=i)
+                        plt.show()            
+                    TVG = angularResponseToPing(ARC, ping.pingChannel[0].SlantRange, ping.pingChannel[0].NumSamples, ping.SensorPrimaryAltitude)
+                    if max(TVG) == 0:
+                        continue
+                    plt.plot(np.array(TVG), label=i)
+                    plt.xlabel('sample')
+                    plt.ylabel('intensity')
+                    plt.grid(True)
+                    plt.legend()
+                    plt.show()            
+                for TVG in PortARC:
+                    i = i +1
+                    plt.plot(np.array(TVG), label=i)
+                plt.xlabel('sample')
+                plt.ylabel('intensity')
+                plt.grid(True)
+                plt.legend()
+                plt.show()            
+        
+            previousRange = ping.pingChannel[0].SlantRange 
+        
+        
         # now do the port channel
         channel = np.array(ping.pingChannel[0].data[::decimation])
         channel = np.multiply(channel, math.pow(2, -ping.pingChannel[0].Weight))
@@ -310,14 +346,14 @@ def createWaterfall(filename, invert, colorScale, clip, decimation, stretch, app
         portImage = samplesToColorImage(pc, invert, clip, colorScale)
         stbdImage = samplesToColorImage(sc, invert, clip, colorScale)
         
-        
     # merge the images into a single image and save to disc
     print ("Merging Channels to single image...")
     mergedImage = mergeImages(portImage, stbdImage)
     print ("Saving Image...")    
     mergedImage.save(os.path.splitext(filename)[0]+'.png')
     print ("Image saved to:", os.path.splitext(filename)[0]+'.png')    
-
+    
+##################################################################################################################
 def findMinMaxClipValues(channel, clip):
     print ("Clipping data with an upper and lower percentage of:", clip)
     # compute a histogram of teh data so we can auto clip the outliers
@@ -465,6 +501,39 @@ def samplesToGrayImageLogarithmic(samples, invert, clip):
     image = Image.fromarray(channel).convert('L')
     
     return image
+
+# compute a pseudo ping of the correct number of samples based on the angular response curve.  This is then easy to apply to the real data 
+def angularResponseToPing(ARC, slantRange, numSamples, altitude):
+    pseudoPing = [0] * numSamples
+    samplesPerMetre = numSamples / slantRange
+    altitudeInSamples = math.ceil(altitude * samplesPerMetre)
+    if math.isnan(max(ARC)):
+        return pseudoPing # nothing to do so quit
+    angles = np.arange(0, 90, 1, dtype=float)
+    for i in range (altitudeInSamples, numSamples): # skip zero element as it will give div 0 error
+        # calculate the angle, then look up the value
+        a = math.degrees(math.acos(altitudeInSamples / i))
+        pseudoPing[i] = np.interp(a, angles, ARC)
+    return pseudoPing
+        
+# we can represent the sector by a series of angles on a per degree basis
+def pingToAngularResponse(data, slantRange, numSamples, altitude):
+    
+    angularResponse = [1] * 90
+    samplesPerMetre = numSamples / slantRange
+    altitudeInSamples = altitude * samplesPerMetre
+    
+    # we do not need to process all recors, jsut subsample on a pre degree basis
+    for i in range (0, 90, 1):
+        #cos(theta) = A / H
+        H = int (altitudeInSamples / math.cos(math.radians(i)))
+        if H < len(data): 
+            angularResponse[i] = H 
+            # print ("angle %d sample %d " % (i, H))    
+    # take off angle = arccos (altitude/ samples  
+    # angle = math.acos(altitudeInSamples / sample)
+    
+    return angularResponse     
     
 # maxSamples lets us know how wide to make the beam correciton table.  This is computed by a pre-iteration stage
 def computeBC(filename, samplesPortSum, samplesPortCount, samplesStbdSum, samplesStbdCount, segmentInterval):
@@ -475,15 +544,22 @@ def computeBC(filename, samplesPortSum, samplesPortCount, samplesStbdSum, sample
         ping = r.readPacket()
         segment = altitudeToSegment(ping.SensorPrimaryAltitude, segmentInterval)
         
+        # channel = np.array(ping.pingChannel[0].data[::decimation])
         channel = np.array(ping.pingChannel[0].data)
         channel = np.multiply(channel, math.pow(2, -ping.pingChannel[0].Weight))
-        samplesPortSum[segment] = np.add(samplesPortSum[segment], channel)            
+
+        # convert the channel into an array of samples on a per anggle basis 
+        angularResponse = pingToAngularResponse( ping.pingChannel[0].data, ping.pingChannel[0].SlantRange, ping.pingChannel[0].NumSamples, ping.SensorPrimaryAltitude)
+        samplesPortSum[segment] = np.add(samplesPortSum[segment], angularResponse)            
         samplesPortCount[segment] = np.add(samplesPortCount[segment],1)            
         
-        channel = np.array(ping.pingChannel[1].data)
-        channel = np.multiply(channel, math.pow(2, -ping.pingChannel[1].Weight))
-        samplesStbdSum[segment] = np.add(samplesStbdSum[segment], channel)            
-        samplesStbdCount[segment] = np.add(samplesStbdCount[segment],1)            
+        # samplesPortSum[segment] = np.add(samplesPortSum[segment], channel)            
+        # samplesPortCount[segment] = np.add(samplesPortCount[segment],1)            
+        
+        # channel = np.array(ping.pingChannel[1].data)
+        # channel = np.multiply(channel, math.pow(2, -ping.pingChannel[1].Weight))
+        # samplesStbdSum[segment] = np.add(samplesStbdSum[segment], channel)            
+        # samplesStbdCount[segment] = np.add(samplesStbdCount[segment],1)            
         if ping.PingNumber % 1000 == 0:
             print ("Ping: %f" % (ping.PingNumber))                  
     

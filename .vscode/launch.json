@@ -13,11 +13,15 @@
                 "WaitOnNormalExit",
                 "RedirectOutput"
             ],
-            "args": ["-a", "-invert", "-clip", "1", "-color", "gray", "-w", "-i",  "C:/development/python/ssl-0064-vsm3_17-20151122-175354_P_Rev2.xtf"]
+            "args": ["-a", "-invert", "-clip", "1", "-color", "gray", "-w", "-i",  "C:/development/python/ssh-0065-vsm3_16-20151122-182327_P_Rev2.xtf"]
         }
    ]
 }
 
+            #LOW FREQUENCY SONAR TESt FILE
+            "args": ["-a", "-invert", "-clip", "1", "-color", "gray", "-w", "-i" "C:/development/python/ssl-0064-vsm3_17-20151122-175354_P_Rev2.xtf"]
             "args": ["-c", "-i",  "C:/development/python/ssl-0064-vsm3_17-20151122-175354_P_Rev2.xtf"]
 
-            "args": ["-w", "-invert", "-clip", "1", "-color", "graylog", "-i",  "C:/development/python/ssh-0065-vsm3_16-20151122-182327_P_Rev2.xtf"]
+
+            #HIGH FREQUENCY SONAR TESt FILE
+            "args": ["-c", "-i",  "C:/development/python/ssh-0065-vsm3_16-20151122-182327_P_Rev2.xtf"]
