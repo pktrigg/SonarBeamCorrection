@@ -290,16 +290,16 @@ def createWaterfall(filename, channelA, channelB, invert, colorScale, clip, deci
             # channelCorrected = np.add(channel, portLift)            
             filteredPortData = channelCorrected.tolist()
 
-            # plt.plot(channel, label="Raw Channel")
-            # plt.plot(channelCorrected, label="corrected")
-            # plt.plot(correction, label="correction", color='red')
-            # # # plt.plot(PortBC[segment-1], label="Beam correction -1")
-            # plt.xlabel('sample')
-            # plt.ylabel('intensity')
-            # plt.grid(True)
-            # # plt.subplots.ax.set_color_cycle(['red', 'black', 'yellow'])
-            # plt.legend()
-            # plt.show()            
+            plt.plot(channel, label="Raw Channel")
+            plt.plot(channelCorrected, label="corrected")
+            plt.plot(correction, label="correction", color='red')
+            # # plt.plot(PortBC[segment-1], label="Beam correction -1")
+            plt.xlabel('sample')
+            plt.ylabel('intensity')
+            plt.grid(True)
+            # plt.subplots.ax.set_color_cycle(['red', 'black', 'yellow'])
+            plt.legend()
+            plt.show()            
 
         # now do the stbd channel
         channel = np.array(ping.pingChannel[1].data[::decimation])
@@ -525,6 +525,8 @@ def pingToAngularResponse(data, slantRange, numSamples, altitude):
     
 def computeBC(filename, channelA, channelB, samplesPortSum, samplesPortCount, samplesStbdSum, samplesStbdCount, segmentInterval):
     """compute the beam correction table using the sonar ping data for the file. maxSamples lets us know how wide to make the beam correction table.  This is computed by a pre-iteration stage"""
+    decimation = 1
+
     #   open the XTF file for reading 
     print ("Opening file:", filename)
     r = pyXTF.XTFReader(filename)
@@ -532,29 +534,20 @@ def computeBC(filename, channelA, channelB, samplesPortSum, samplesPortCount, sa
         ping = r.readPacket()
         segment = altitudeToSegment(ping.SensorPrimaryAltitude, segmentInterval)
         
-        # todo we might be able to decimate the data to speed the process up!  this is an optimisation, so not urgent 
-        # channel = np.array(ping.pingChannel[0].data[::decimation])
-        # convert a ping into a numpy array so we can process it more efficiently
-        # channel = np.array(ping.pingChannel[channelA].data)
-        # channel = np.multiply(channel, math.pow(2, -ping.pingChannel[0].Weight))
-
-        # convert the channel into an array of samples on a per angle basis 
-        angularResponse = pingToAngularResponse( ping.pingChannel[channelA].data, ping.pingChannel[channelA].SlantRange, ping.pingChannel[channelA].NumSamples, ping.SensorPrimaryAltitude)
+        # convert the port channel into an array of samples on a per angle basis 
+        channelData = np.array(ping.pingChannel[channelA].data[::decimation])
+        channelData = np.multiply(channelData, math.pow(2, -ping.pingChannel[channelA].Weight))
+        angularResponse = pingToAngularResponse(channelData, ping.pingChannel[channelA].SlantRange, ping.pingChannel[channelA].NumSamples, ping.SensorPrimaryAltitude)
         samplesPortSum[segment] = np.add(samplesPortSum[segment], angularResponse)            
         samplesPortCount[segment] = np.add(samplesPortCount[segment],1)            
 
-        # convert the channel into an array of samples on a per angle basis 
-        angularResponse = pingToAngularResponse( ping.pingChannel[channelB].data, ping.pingChannel[channelB].SlantRange, ping.pingChannel[channelB].NumSamples, ping.SensorPrimaryAltitude)
+        # convert the starboard channel into an array of samples on a per angle basis 
+        channelData = np.array(ping.pingChannel[channelB].data[::decimation])
+        channelData = np.multiply(channelData, math.pow(2, -ping.pingChannel[channelB].Weight))
+        angularResponse = pingToAngularResponse(channelData, ping.pingChannel[channelB].SlantRange, ping.pingChannel[channelB].NumSamples, ping.SensorPrimaryAltitude)
         samplesStbdSum[segment] = np.add(samplesStbdSum[segment], angularResponse)            
         samplesStbdCount[segment] = np.add(samplesStbdCount[segment],1)            
         
-        # samplesPortSum[segment] = np.add(samplesPortSum[segment], channel)            
-        # samplesPortCount[segment] = np.add(samplesPortCount[segment],1)            
-        
-        # channel = np.array(ping.pingChannel[1].data)
-        # channel = np.multiply(channel, math.pow(2, -ping.pingChannel[1].Weight))
-        # samplesStbdSum[segment] = np.add(samplesStbdSum[segment], channel)            
-        # samplesStbdCount[segment] = np.add(samplesStbdCount[segment],1)            
         if ping.PingNumber % 1000 == 0:
             print ("Ping: %f" % (ping.PingNumber))                  
     
