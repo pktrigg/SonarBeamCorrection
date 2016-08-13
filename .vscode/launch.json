@@ -13,7 +13,7 @@
                 "WaitOnNormalExit",
                 "RedirectOutput"
             ],
-            "args": ["-a","-w", "-i", "C:/development/python/ssl-0064-vsm3_17-20151122-175354_P_Rev2.xtf"]
+            "args": ["-a","-w", "-invert", "-clip", "1", "-i", "C:/development/python/ssl-0064-vsm3_17-20151122-175354_P_Rev2.xtf"]
         }
    ]
 }
