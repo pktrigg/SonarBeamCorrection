@@ -47,7 +47,7 @@ from PIL import Image
 from scipy import interpolate
 
 # if we want to see some debug plots, enable this option
-DEBUG=True
+DEBUG=False
 # we need to define the limits and resolution of the beam correction table, so do it here.
 BCStartAngle = 0
 BCEndAngle = 90.0
@@ -308,11 +308,12 @@ def createWaterfall(filename, channelA, channelB, invert, colorScale, clip, deci
                     plt.pause(0.05)
 
         # now do the stbd channel
-        # channel = np.array(ping.pingChannel[1].data[::decimation])
-        # channel = np.multiply(channel, math.pow(2, -ping.pingChannel[1].Weight))
-        # rawStbdData = channel.tolist()
-        # channelCorrected = channel
-        channelCorrected = geodetic.medfilt(channelCorrected, 5)
+        channel = np.array(ping.pingChannel[1].data[::decimation])
+        channel = np.multiply(channel, math.pow(2, -ping.pingChannel[1].Weight))
+        rawStbdData = channel.tolist()
+        channelCorrected = channel
+        filteredStbdData = rawStbdData
+        # channelCorrected = geodetic.medfilt(channelCorrected, 5)
         # if applyBC:
         #     segment = altitudeToSegment(ping.SensorPrimaryAltitude, segmentInterval)
         #     channelCorrected = np.subtract(channel, StbdBC[segment])            
@@ -323,7 +324,7 @@ def createWaterfall(filename, channelA, channelB, invert, colorScale, clip, deci
             pc.insert(0, filteredPortData)
             # pc.insert(0, rawPortData)
             # sc.insert(0, rawPortData)
-            sc.insert(0, filteredPortData)
+            sc.insert(0, filteredStbdData)
 
     portImage = []
     stbdImage = []
