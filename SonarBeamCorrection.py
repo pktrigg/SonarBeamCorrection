@@ -9,8 +9,6 @@ import bisect
 import math
 import argparse
 import sys
-# good for debugging as we only have the 1 file, but for production we should move these into the same folder as the script so it is all self contained.
-sys.path.append('../pyxtf')
 import csv
 import pyXTF
 import geodetic
