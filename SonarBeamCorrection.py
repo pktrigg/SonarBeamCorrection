@@ -20,7 +20,7 @@
 # moved over to revised XTFreader which reads packets rather than records and handles padbytes
 # improved user feedbakc
 # performance improvements
-# current performane is 27 econds to process 8000 pings (half an hour of AUV collection.  This is ok
+# current performane is 27 seconds to process 8000 pings (half an hour of AUV collection.  This is ok
 # added a simple waterfall image creation funciton.  We can use this to confirm the beam correction is valid
 # auto compute the approximate Y scale form the sample rate so the waterfall image is approximately isometric
 # do we need to take into account changes in sample frequency.  THis will screw up the BC table 
