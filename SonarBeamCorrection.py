@@ -44,6 +44,7 @@ def main():
     parser.add_argument('-y', action='store', default=-1, dest='stretch', help='-y <value> : Set the alongtrack scale factor. The process will look at the data and inform you what the Y axis pixel size repesents with this y scale. [Default = -1 for auto stretch.]')
     parser.add_argument('-lf', action='store_true', default=True, dest='processLFData', help='-lf : process the LOW frequency data in the file (channels 0 & 1. [Default = True.]')
     parser.add_argument('-hf', action='store_true', default=False, dest='processHFData', help='-hf : process the HIGH frequency data in the file (channels 2 & 3. [Default = False.]')
+    parser.add_argument('-s', action='store', default=0, dest='medianFilter', help='-s <value> : Apply a median filter across each ping to remove noisy data.  The filter length is specifed by the user. [Default =  0 for no filtering.]')
     
     if len(sys.argv)==1:
         parser.print_help()
@@ -253,6 +254,7 @@ def createWaterfall(filename, channelA, channelB, invert, colorScale, clip, deci
                 portLift = np.average(PortARC)
         
         # now do the port channel
+        # we go from the channel list --> channel
         channel = np.array(ping.pingChannel[0].data[::decimation])
         channel = np.multiply(channel, math.pow(2, -ping.pingChannel[0].Weight))
         rawPortData = channel.tolist()
