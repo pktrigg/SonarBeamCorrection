@@ -5,35 +5,10 @@
 #notes:         See main at end of script for example how to use this
 #version 1.00
 
-#2DO
-# add support for altitude based BC tables.  This means compute the altitude range, then segment on a regular intervel (default 1m)
-# add support for user selection of palette.  Use the edgetech discover palettes files.  default to be greyscale
-# add support for logarithmic color ramp
-# add support for color ramp scaling to the command line (min/max value)
-# add support for channel selection, 0,1 or 2,3  default is 0,1
-# what to do if altitude in XTF == 0.  needs testing for div zero.
-
-#DONE
-# add support for stretch and decimation instead of auto computing based on navigation.  We may well not have navigation!
-# -w option now produces a nice png file of the sonar
-# now uses the pyxtf project rather than a local copy
-# moved over to revised XTFreader which reads packets rather than records and handles padbytes
-# improved user feedbakc
-# performance improvements
-# current performane is 27 econds to process 8000 pings (half an hour of AUV collection.  This is ok
-# added a simple waterfall image creation funciton.  We can use this to confirm the beam correction is valid
-# auto compute the approximate Y scale form the sample rate so the waterfall image is approximately isometric
-# do we need to take into account changes in sample frequency.  THis will screw up the BC table 
-# based on XTF version 26 18/12/2008
-# based on existing SonarCoverage.py script
-# initial implementation
-
 import bisect
 import math
 import argparse
 import sys
-# good for debugging as we only have the 1 file, but for production we should move these into the same folder as the script so it is all self contained.
-sys.path.append('../pyxtf')
 import csv
 import pyXTF
 import geodetic
@@ -71,6 +46,7 @@ def main():
     parser.add_argument('-y', action='store', default=-1, dest='stretch', help='-y <value> : Set the alongtrack scale factor. The process will look at the data and inform you what the Y axis pixel size repesents with this y scale. [Default = -1 for auto stretch.]')
     parser.add_argument('-lf', action='store_true', default=True, dest='processLFData', help='-lf : process the LOW frequency data in the file (channels 0 & 1. [Default = True.]')
     parser.add_argument('-hf', action='store_true', default=False, dest='processHFData', help='-hf : process the HIGH frequency data in the file (channels 2 & 3. [Default = False.]')
+    parser.add_argument('-s', action='store', default=0, dest='medianFilter', help='-s <value> : Apply a median filter across each ping to remove noisy data.  The filter length is specifed by the user. [Default =  0 for no filtering.]')
     
     if len(sys.argv)==1:
         parser.print_help()
@@ -294,6 +270,7 @@ def createWaterfall(filename, channelA, channelB, invert, colorScale, clip, deci
                 # portLift = np.average(PortARC)
                 
         # now do the port channel
+        # we go from the channel list --> channel
         channel = np.array(ping.pingChannel[0].data[::decimation])
         channel = np.multiply(channel, math.pow(2, -ping.pingChannel[0].Weight))
         rawPortData = channel.tolist()
@@ -363,10 +340,18 @@ def createWaterfall(filename, channelA, channelB, invert, colorScale, clip, deci
                 plt.pause(0.05)
 
         # now do the stbd channel
+<<<<<<< HEAD
         # channel = np.array(ping.pingChannel[1].data[::decimation])
         # channel = np.multiply(channel, math.pow(2, -ping.pingChannel[1].Weight))
         # rawStbdData = channel.tolist()
         # channelCorrected = channel
+=======
+        channel = np.array(ping.pingChannel[1].data[::decimation])
+        channel = np.multiply(channel, math.pow(2, -ping.pingChannel[1].Weight))
+        rawStbdData = channel.tolist()
+        channelCorrected = channel
+        filteredStbdData = rawStbdData
+>>>>>>> a4d0d94e1a7cb2c8fa521fee7c7c15f0f9fd2c97
         # channelCorrected = geodetic.medfilt(channelCorrected, 5)
         # if applyBC:
         #     segment = altitudeToSegment(ping.SensorPrimaryAltitude, segmentInterval)
@@ -378,6 +363,7 @@ def createWaterfall(filename, channelA, channelB, invert, colorScale, clip, deci
             pc.insert(0, filteredPortData[::-1])
             # pc.insert(0, rawPortData[::-1])
             # sc.insert(0, rawPortData)
+<<<<<<< HEAD
             # sc.insert(0, filteredPortData)
             # sc.insert(0, filteredPortData)
 
@@ -388,6 +374,9 @@ def createWaterfall(filename, channelA, channelB, invert, colorScale, clip, deci
         for i in range (stretch):
             sc.insert(0, rawStbdData)
 
+=======
+            sc.insert(0, filteredStbdData)
+>>>>>>> a4d0d94e1a7cb2c8fa521fee7c7c15f0f9fd2c97
 
     portImage = []
     stbdImage = []
