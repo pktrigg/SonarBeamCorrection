@@ -183,6 +183,14 @@ class XTFPINGCHANHEADER:
         XTFdata_unpack = struct.Struct(XTFdata_fmt).unpack_from
         blob = fileptr.read(XTFdata_len)
         self.data = XTFdata_unpack(blob)
+        if self.ChannelNumber % 2 == 0: 
+            # an even number, which means a port channel, so reverse it
+            tmp = XTFdata_unpack(blob)
+            self.data = tmp[::-1]
+        else:
+            # an odd number, so this is a stbd channel
+            self.data = XTFdata_unpack(blob)
+            
         # print ("XTFdata_len: ", XTFdata_len)
         
         return

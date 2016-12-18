@@ -51,6 +51,32 @@
 import math
 import numpy as np
 
+def rollingStandardDeviation(a, window):
+    std = np.std(rolling_window(a, window), 1)
+    # now we need to pad the start and end with the nearest first and last values
+    padLeft = int ((a.size - std.size )/2)
+    firstValue = std[0]
+    lastValue = std[-1]
+    for i in range(0,padLeft):
+        std = np.insert(std,0,firstValue)
+    # now add values onto the end until the array is as long as the original.  This deals with odd numbered arrays and odd sized Windows  
+    while std.size < a.size:
+        std = np.append(std,lastValue)
+    return std                 
+
+
+def rolling_window(a, window):
+    shape = a.shape[:-1] + (a.shape[-1] - window + 1, window)
+    strides = a.strides + (a.strides[-1],)
+    return np.lib.stride_tricks.as_strided(a, shape=shape, strides=strides)
+
+def medfilt2 (x, k):
+    """Apply a length-k median filter to a 1D array x.
+    Boundaries are extended by repeating endpoints.
+    """
+    assert k % 2 == 1, "Median filter length must be odd."
+    assert x.ndim == 1, "Input must be one-dimensional."
+    return np.median((rolling_window(observations, n), 1))
 
 def medfilt (x, k):
     """Apply a length-k median filter to a 1D array x.

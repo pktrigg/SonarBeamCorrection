@@ -45,9 +45,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 from scipy import interpolate
+import warnings
+warnings.filterwarnings("ignore")
 
 # if we want to see some debug plots, enable this option
-DEBUG=True
+DEBUG=False
 # we need to define the limits and resolution of the beam correction table, so do it here.
 BCStartAngle = 0
 BCEndAngle = 90.0
@@ -60,7 +62,7 @@ def main():
     parser.add_argument('-c', action='store_true', default=False, dest='createBC', help='-c : Compute a new Beam Correction file based on contents of XTF file[s]. File create will be called beamcorreciton_port and beamcorrection_stbd.csv')
     parser.add_argument('-i', dest='inputFile', action='store', help='-i <XTFfilename> : input XTF filename to analyse')
     parser.add_argument('-color', dest='color', default = 'graylog', action='store', help='-color <paletteName> : Specify the color palette.  Options are : -color yellow_brown_log, -color gray, -color yellow_brown or any of the palette filenames in the script folder. [Default = graylog for a grayscale logarithmic palette.]' )
-    parser.add_argument('-clip', dest='clip', default = 5, action='store', help='-clip <value> : Clip the minimum and maximum edges of the data by this percentage so the color stretch better represents the data.  [Default - 5.  A good value is -clip 5.]')
+    parser.add_argument('-clip', dest='clip', default = 0, action='store', help='-clip <value> : Clip the minimum and maximum edges of the data by this percentage so the color stretch better represents the data.  [Default - 1.  A good value is -clip 0.]')
     parser.add_argument('-invert', dest='invert', default = False, action='store_true', help='-invert : Inverts the color palette')
     parser.add_argument('-o', dest='outputFile', action='store', help='-o <filename> : Output Beam Correction filename.  [default = BC.csv]')
     parser.add_argument('-odix', dest='outputFolder', action='store', help='-odix <folder> : Output folder to store Beam Correction file.  If not specified, the files will be alongside the input XTF file')
@@ -91,8 +93,10 @@ def main():
 
     leftSide = [] #storage for the left transducer beam correction
     rightSide = [] #storage for the right transducer beam correction
-    maxSamplesPort =  (BCEndAngle - BCStartAngle) / BCAngleInterval
-    maxSamplesStbd = (BCEndAngle - BCStartAngle) / BCAngleInterval
+    # maxSamplesPort =  (BCEndAngle - BCStartAngle) / BCAngleInterval
+    # maxSamplesStbd = (BCEndAngle - BCStartAngle) / BCAngleInterval
+    maxSamplesPort =  5000
+    maxSamplesStbd = 5000 
     minAltitude = 99999
     maxAltitude = 0
     segmentInterval = 100 #the altitude segmentaiton interval
@@ -100,21 +104,23 @@ def main():
     print ("Files to Process:", glob(args.inputFile))
     print ("Iterating through all input files to compute the maximum size of the beam correction table.  This takes into account changes in range")
     if args.createBC:       
-        # for filename in glob(args.inputFile):
-        #     samplesPort, samplesStbd, minAltitude, maxAltitude, maxRange, pingCount, meanSpeed, navigation = getSampleRange(filename, channelA, channelB, False)
-        #     maxSamplesPort = max(maxSamplesPort, samplesPort)
-        #     maxSamplesStbd = max(maxSamplesStbd, samplesStbd)
+        for filename in glob(args.inputFile):
+            samplesPort, samplesStbd, minAltitude, maxAltitude, maxRange, pingCount, meanSpeed, navigation = getSampleRange(filename, channelA, channelB, False)
+            maxSamplesPort = min(maxSamplesPort, maxRange)
+            maxSamplesStbd = min(maxSamplesStbd, maxRange)
         # print ("maxSamplesPort %s maxSamplesStbd %s minAltitude %s maxAltitude %s" % (maxSamplesPort, maxSamplesStbd, minAltitude, maxAltitude))
         
         numSegments = int(maxAltitude / segmentInterval) + 1 # need to add extra for zero index
         samplesPortSum = np.zeros((numSegments, maxSamplesPort), dtype=np.int32  )
         samplesPortCount = np.zeros((numSegments,maxSamplesPort), dtype=np.int  )
+        samplesPortSumSquared = np.zeros((numSegments, maxSamplesPort), dtype=np.int32  ) #used for standard deviations
         samplesStbdSum = np.zeros((numSegments, maxSamplesStbd), dtype=np.int32  )
         samplesStbdCount = np.zeros((numSegments, maxSamplesStbd), dtype=np.int  )
+        samplesStbdSumSquared = np.zeros((numSegments, maxSamplesStbd), dtype=np.int32  )
 
     if args.createBC:       
         for filename in glob(args.inputFile):
-            samplesPortSum, samplesPortCount, samplesStbdSum, samplesStbdCount = computeBC(filename, channelA, channelB, samplesPortSum, samplesPortCount, samplesStbdSum, samplesStbdCount, segmentInterval)
+            samplesPortSum, samplesPortCount, samplesPortSumSquared, samplesStbdSum, samplesStbdCount, samplesStbdSumSquared = computeBC(filename, channelA, channelB, samplesPortSum, samplesPortCount, samplesPortSumSquared, samplesStbdSum, samplesStbdCount, samplesStbdSumSquared,segmentInterval)
 
         # now save the results to a csv file
         if args.outputFile is None:
@@ -133,7 +139,7 @@ def main():
         print("Saving Port CSV file:", BCPortFile)
         samplesPortAVG = np.divide(samplesPortSum, samplesPortCount)
         # apply a smoothing fileter to the data.  There is no value having spikes in the beam correction file!
-        samplesPortAVG = np.apply_along_axis(geodetic.medfilt, 1, samplesPortAVG, 9)
+        # samplesPortAVG = np.apply_along_axis(geodetic.medfilt, 1, samplesPortAVG, 9)
         np.savetxt(BCPortFile, samplesPortAVG, fmt='%.3f', delimiter=',')
 
         print("Saving Stbd CSV file:", BCStbdFile)
@@ -157,6 +163,14 @@ def main():
 
     print("Process complete. Duration: %.2f s" % (time.time() - start_time)) # print the processing time.
     return (0)
+
+def getValueAt40Degree(ping, slantRange, altitude):
+    """Given a 1D ping array, return the sample at the 40 degree angle from nadir """
+    samplesPerMetre = len(ping) / slantRange
+    altitudeInSamples = math.floor(altitude * samplesPerMetre)
+    #  H = A / cos(theta)
+    H = int (altitudeInSamples / math.cos(math.radians(40)))
+    return ping[H]
 
 def mergeImages(image1, image2):
     """Merge two images into one, displayed side by side
@@ -267,52 +281,93 @@ def createWaterfall(filename, channelA, channelB, invert, colorScale, clip, deci
         if applyBC:
             if not (previousRange == int (ping.pingChannel[0].SlantRange)):
                 previousRange = int (ping.pingChannel[0].SlantRange) 
-                PortARC = []
-                StbdARC = []
-                print ("Computing angular response from the Beam Correction tables for slantrange:", ping.pingChannel[0].SlantRange)
+                # PortARC = []
+                # StbdARC = []
+                print ("Applying angular response from the Beam Correction tables for slantrange:", ping.pingChannel[0].SlantRange)
                 if len(PortBC.shape) == 1: # we do this if we have only 1 ARC in the correciton file.
-                    PortARC.append(angularResponseToPing(PortBC, ping.pingChannel[0].SlantRange, ping.SensorPrimaryAltitude, int (ping.pingChannel[0].NumSamples / decimation), BCStartAngle, BCEndAngle, BCAngleInterval))
-                if len(PortBC.shape) == 2: # we do this if there are multiple ARC's in the correction file'
-                    for ARC in PortBC:
-                        PortARC.append(angularResponseToPing(ARC, ping.pingChannel[0].SlantRange, ping.SensorPrimaryAltitude, int (ping.pingChannel[0].NumSamples / decimation)))
-                portLift = np.average(PortARC)
-        
+                    # PortARC.append(angularResponseToPing(PortBC, ping.pingChannel[0].SlantRange, ping.SensorPrimaryAltitude, int (ping.pingChannel[0].NumSamples / decimation), BCStartAngle, BCEndAngle, BCAngleInterval))
+                    PortARC = offtrackResponseToPing(PortBC, ping.pingChannel[0].SlantRange, ping.SensorPrimaryAltitude, int (ping.pingChannel[0].NumSamples / decimation) )
+                # if len(PortBC.shape) == 2: # we do this if there are multiple ARC's in the correction file'
+                #     for ARC in PortBC:
+                #         # PortARC.append(angularResponseToPing(ARC, ping.pingChannel[0].SlantRange, ping.SensorPrimaryAltitude, int (ping.pingChannel[0].NumSamples / decimation)))
+                #         PortARC.append(offtrackResponseToPing(PortBC, ping.pingChannel[0].SlantRange, ping.SensorPrimaryAltitude, int (ping.pingChannel[0].NumSamples / decimation) ))
+                # portLift = np.average(PortARC)
+                
         # now do the port channel
         channel = np.array(ping.pingChannel[0].data[::decimation])
         channel = np.multiply(channel, math.pow(2, -ping.pingChannel[0].Weight))
         rawPortData = channel.tolist()
-        channelCorrected = channel
-        filteredPortData = rawPortData
-        # channelCorrected = geodetic.medfilt(channelCorrected, 5)
+        PingStandardDeviation = channel.tolist()
+        # channel = np.log10(channel)
+        # channel[~np.isfinite(channel)] = 0
+        
         # apply the beam correction here
         if applyBC:
-            segment = altitudeToSegment(ping.SensorPrimaryAltitude, segmentInterval)
-            # correction = PortBC
-            correction = PortARC[segment]
+            # CSIRO (Norm) algorithm
+            # The centring / standardisation Norm uses is:
+            # BS_cnt_scld(k) = BS_mean_at_40 + BS_SD_at_40 * [ { BS(k) – BS_means(k) } / BD_SDs(k) ]
+            # where 
+            # BS_means(k), k=1, nbr_angles*** are the mean values over all tracks, or over a uniform area or ...
+            # BS_SDs(k) are the standard deviations (SDs) – I calculate the SDs for contiguous windows of size 10, 20 or 50 (depending on the images), and then take averages or medians of the resulting set of SDs for each angle
+            # BS_mean_at_40 is the mean value at around 40 deg; this adjustment moves the centred and scaled values back to roughly the same levels as the original backscatter values 
+            # BS_SD_at_40 is the SD value at around 40 deg; this adjustment scales the centred and scaled values back to roughly the same amount of variability as the original backscatter values 
+            
+            # calculate the moving standard deviation across the ping
+            correction = PortARC
+            PingStandardDeviation = geodetic.rollingStandardDeviation(channel, 10)
+            BS_SD_at_40 = getValueAt40Degree(PingStandardDeviation, ping.pingChannel[0].SlantRange, ping.SensorPrimaryAltitude)
+            BS_mean_at_40 = getValueAt40Degree(PortARC, ping.pingChannel[0].SlantRange, ping.SensorPrimaryAltitude)
             channelCorrected = np.subtract(channel, correction)
-            channelCorrected = np.add(channelCorrected, portLift)            
-            channelCorrected = geodetic.medfilt(channelCorrected, 5)
-            filteredPortData = channelCorrected.tolist()
+            channelCorrected = np.divide(channel, PingStandardDeviation)
+            channelCorrected = np.multiply(channel, BS_SD_at_40)
+            channelCorrected = np.add(channel, BS_mean_at_40)
 
-            if DEBUG:
-                if ping.PingNumber % 250 == 0:
-                    plt.clf()
-                    plt.title("Ping: " + str( ping.PingNumber))
-                    plt.xlabel('sample')
-                    plt.ylabel('intensity')
-                    plt.grid(True)
-                    plt.plot(correction, label="ARC", color='red', linewidth=2.5)
-                    plt.plot(channel, label="Raw Channel", color='gray', linewidth=0.1)
-                    plt.plot(channelCorrected, label="corrected", color='green', linewidth=0.5)
-                    plt.legend()
-                    plt.pause(0.05)
+            ############################
+            # segment = altitudeToSegment(ping.SensorPrimaryAltitude, segmentInterval)
+            # correction = PortBC
+            # correction = PortARC[segment]
+            # correction = np.array(PortARC[segment])
+            # correction = np.log10(correction)
+            # correction[~np.isfinite(correction)] = 0
+
+            # to emulat what gplot does, we need to invert the correction, shift back into positive territory, then multiply with the data
+            # max = np.amax(correction)
+            # correction = np.subtract(max, correction)  #invert
+            # correction = np.multiply(correction, 2)  #scale it
+            # correction= correction.astype(int)
+            # correction = np.add(correction, portLift)        
+            # XXXcorrection= 1.0 / correction
+
+            # channelCorrected = channel
+            # channelCorrected = np.multiply(channelCorrected, max)
+            # channelCorrected = np.add(channelCorrected, portLift)            
+            # channelCorrected = geodetic.medfilt(channelCorrected, 5)
+            filteredPortData = channelCorrected.tolist()
+        else:
+            correction = channel #so the plots work even when applyBD is disabled
+            channelCorrected = channel
+            filteredPortData = channelCorrected
+
+        if DEBUG:
+            if ping.PingNumber % 250 == 0:
+                plt.clf()
+                plt.title("Ping: " + str( ping.PingNumber))
+                plt.xlabel('sample')
+                plt.ylabel('intensity')
+                # plt.grid(True)
+                plt.plot(PingStandardDeviation, label="Stdev", color='blue', linewidth=0.5)
+                plt.plot(correction, label="ARC", color='red', linewidth=0.5)
+                plt.plot(channel, label="Raw Channel", color='gray', linewidth=0.1)
+                plt.plot(channelCorrected, label="corrected", color='green', linewidth=0.1)
+                plt.legend()
+                plt.pause(0.05)
 
         # now do the stbd channel
         # channel = np.array(ping.pingChannel[1].data[::decimation])
         # channel = np.multiply(channel, math.pow(2, -ping.pingChannel[1].Weight))
         # rawStbdData = channel.tolist()
         # channelCorrected = channel
-        channelCorrected = geodetic.medfilt(channelCorrected, 5)
+        # channelCorrected = geodetic.medfilt(channelCorrected, 5)
         # if applyBC:
         #     segment = altitudeToSegment(ping.SensorPrimaryAltitude, segmentInterval)
         #     channelCorrected = np.subtract(channel, StbdBC[segment])            
@@ -320,10 +375,19 @@ def createWaterfall(filename, channelA, channelB, invert, colorScale, clip, deci
 
         # Add the data to the waterfall, stretching along the Y axis as we go so the image is close to isometric 
         for i in range (stretch):
-            pc.insert(0, filteredPortData)
-            # pc.insert(0, rawPortData)
+            pc.insert(0, filteredPortData[::-1])
+            # pc.insert(0, rawPortData[::-1])
             # sc.insert(0, rawPortData)
-            sc.insert(0, filteredPortData)
+            # sc.insert(0, filteredPortData)
+            # sc.insert(0, filteredPortData)
+
+        # now do the starboard channel
+        channel = np.array(ping.pingChannel[1].data[::decimation])
+        channel = np.multiply(channel, math.pow(2, -ping.pingChannel[1].Weight))
+        rawStbdData = channel.tolist()
+        for i in range (stretch):
+            sc.insert(0, rawStbdData)
+
 
     portImage = []
     stbdImage = []
@@ -480,6 +544,7 @@ def loadColormap(palette):
     cmap = mpl.colors.ListedColormap(['r', 'g', 'b', 'c'])
     
     return cmap
+
 ###################################
 # zg_LL = lower limit of grey scale
 # zg_UL = upper limit of grey scale
@@ -579,7 +644,47 @@ def pingToAngularResponse(ping, slantRange,  altitude, BCStartAngle, BCEndAngle,
     # return dictResponse     
     return angularResponse     
 
-def computeBC(filename, channelA, channelB, samplesPortSum, samplesPortCount, samplesStbdSum, samplesStbdCount, segmentInterval):
+####V2 This is an Offtrack BeamCorrection table####
+def offtrackResponseToPing(ARC, slantRange, altitude, numSamplesRequired):
+    """compute a pseudo ping of the correct number of samples based on the offtrack (dx) response curve.  This is then easy to apply to the real data""" 
+    pseudoPing = [0] * numSamplesRequired
+    samplesPerMetre = numSamplesRequired / slantRange
+    altitudeInSamples = math.ceil(altitude * samplesPerMetre)
+    altitudeInMetresSquared = (altitudeInSamples/samplesPerMetre) * (altitudeInSamples/samplesPerMetre)
+    decimation = 1 #int (samplesPerMetre / 5)
+    idX = np.arange(0, len(ARC))
+
+    # we do not need to process all records, just subsample on a per-degree basis
+    # for sampleNumber in range(0, len(pseudoPing) - 1, decimation):
+    # for sampleNumber in range(altitudeInSamples, len(pseudoPing) - 1, decimation):
+    for sampleNumber in range(0, len(pseudoPing), decimation):
+        rangeMetres = sampleNumber / samplesPerMetre
+        if rangeMetres < altitude:
+            dx = 0 
+        else:
+            dx = int (math.sqrt((rangeMetres * rangeMetres) - altitudeInMetresSquared)) 
+        sample = np.interp(dx, idX, ARC)
+        # print ("offset %d sample %d intensity %d" % (dx, sampleNumber, sample))
+        pseudoPing[sampleNumber] = sample
+    return (pseudoPing)
+
+def pingToOfftrackResponse(ping, slantRange,  altitude, maxRange):
+    """Compute an instantaneous OFFSET (dX) based response using a single ping of information"""
+    offtrackResponse = [0] * int (maxRange)
+    samplesPerMetre = len(ping) / slantRange
+    altitudeInSamples = math.floor(altitude * samplesPerMetre)
+    decimation = int (samplesPerMetre / 5)
+    altitudeInMetresSquared = (altitudeInSamples/samplesPerMetre) * (altitudeInSamples/samplesPerMetre)
+
+    # we do not need to process all records, just subsample on a per-degree basis
+    for s in range(altitudeInSamples, len(ping) - 1, decimation):
+        rangeMetres = s / samplesPerMetre
+        dx = int (math.sqrt((rangeMetres * rangeMetres) - altitudeInMetresSquared)) 
+        # print ("offset %d sample %d intensity %d" % (dx, s, ping[s]))
+        offtrackResponse[dx] = ping[s]     
+    return offtrackResponse     
+
+def computeBC(filename, channelA, channelB, samplesPortSum, samplesPortCount, samplesPortSumSquared, samplesStbdSum, samplesStbdCount, samplesStbdSumSquared, segmentInterval):
     """compute the beam correction table using the sonar ping data for the file. maxSamples lets us know how wide to make the beam correction table.  This is computed by a pre-iteration stage"""
 
     #   open the XTF file for reading 
@@ -589,21 +694,40 @@ def computeBC(filename, channelA, channelB, samplesPortSum, samplesPortCount, sa
         ping = r.readPacket()
         segment = altitudeToSegment(ping.SensorPrimaryAltitude, segmentInterval)
         
-        # convert the port channel into an array of samples on a per angle basis 
+        # CHANNEL A : convert the port channel into an array of samples on a per angle basis 
         channelData = np.array(ping.pingChannel[channelA].data)
         channelData = np.multiply(channelData, math.pow(2, -ping.pingChannel[channelA].Weight))
-        channelData = geodetic.medfilt(channelData, 5)
+        #remove the crazy spikes as they do not help compute the Beam correction curve
+        # channelData = geodetic.medfilt(channelData, 5)
 
-        angularResponse = pingToAngularResponse(channelData, ping.pingChannel[channelA].SlantRange, ping.SensorPrimaryAltitude, BCStartAngle, BCEndAngle, BCAngleInterval)
-        
+        # angularResponse = pingToAngularResponse(channelData, ping.pingChannel[channelA].SlantRange, ping.SensorPrimaryAltitude, BCStartAngle, BCEndAngle, BCAngleInterval)
+        angularResponse = pingToOfftrackResponse(channelData, ping.pingChannel[channelA].SlantRange, ping.SensorPrimaryAltitude, samplesPortSum.size)
+
         samplesPortSum[segment] = np.add(samplesPortSum[segment], angularResponse)            
         samplesPortCount[segment] = np.add(samplesPortCount[segment],1)            
+        angularResponse = np.square(angularResponse)
+        samplesPortSumSquared[segment] = np.add(samplesPortSumSquared[segment], angularResponse)            
+
+        # CHANNEL B : convert the port channel into an array of samples on a per angle basis 
+        channelData = np.array(ping.pingChannel[channelB].data)
+        channelData = np.multiply(channelData, math.pow(2, -ping.pingChannel[channelB].Weight))
+        #remove the crazy spikes as they do not help compute the Beam correction curve
+        # channelData = geodetic.medfilt(channelData, 5)
+
+        # angularResponse = pingToAngularResponse(channelData, ping.pingChannel[channelA].SlantRange, ping.SensorPrimaryAltitude, BCStartAngle, BCEndAngle, BCAngleInterval)
+        angularResponse = pingToOfftrackResponse(channelData, ping.pingChannel[channelB].SlantRange, ping.SensorPrimaryAltitude, samplesStbdSum.size)
+
+        samplesStbdSum[segment] = np.add(samplesStbdSum[segment], angularResponse)            
+        samplesStbdCount[segment] = np.add(samplesStbdCount[segment],1)            
+        angularResponse = np.square(angularResponse)
+        samplesStbdSumSquared[segment] = np.add(samplesStbdSumSquared[segment], angularResponse)            
+
 
         if ping.PingNumber % 1000 == 0:
             print ("Ping: %f" % (ping.PingNumber))                  
     
     print("Complete reading XTF file :-)")
-    return (samplesPortSum, samplesPortCount, samplesStbdSum, samplesStbdCount)
+    return (samplesPortSum, samplesPortCount, samplesPortSumSquared, samplesStbdSum, samplesStbdCount, samplesStbdSumSquared)
     
 if __name__ == "__main__":
     main()
